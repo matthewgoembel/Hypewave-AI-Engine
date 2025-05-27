@@ -8,6 +8,7 @@ from intent_router import route_intent, format_for_model, is_trade_setup_questio
 from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
+from alert_engine import generate_alert
 import base64
 import random
 import os
@@ -213,6 +214,19 @@ async def chat_with_chart(
 ):
     return await process_chart_analysis(chart, bias, timeframe, entry_intent, question)
 
+@app.post("/alerts/generate")
+async def generate_alerts(symbols: list[str] = Body(...)):
+    all_alerts = {}
+    for symbol in symbols:
+        alerts = generate_alert(symbol.upper())
+        if alerts:
+            all_alerts[symbol] = alerts
+    return {"generated_alerts": all_alerts}
+
+@app.post("/alerts/generate")
+async def generate_signals():
+    await run_signal_check()
+    return {"status": "Signal check completed"}
 
 @app.post("/analyze_chart")
 async def analyze_chart(
