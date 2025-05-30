@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query, UploadFile, File, Form, Body
+from fastapi import BackgroundTasks
 from dotenv import load_dotenv
 from schemas import ChatRequest, ChatResponse
 from db import log_signal, log_alert, collection
@@ -9,10 +10,8 @@ from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
 from alert_engine import generate_alert
-import base64
-import random
-import os
-import re
+from twitter_fetcher import run_loop as twitter_run_loop
+import base64, random, os, re, threading
 
 
 load_dotenv()
@@ -27,6 +26,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+def start_twitter_fetcher():
+    threading.Thread(target=lambda: twitter_run_loop(60), daemon=True).start()
+
 
 @app.get("/")
 def root():
@@ -237,6 +241,7 @@ async def analyze_chart(
     question: str = Form("What is your technical analysis?")
 ):
     return await process_chart_analysis(chart, bias, timeframe, entry_intent, question)
+
 
 
 @app.get("/analyze")
