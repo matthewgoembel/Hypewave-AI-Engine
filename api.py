@@ -47,15 +47,24 @@ async def chat_router(
 ):
     try:
         import re
+
+        KNOWN_SYMBOLS = ["BTC", "ETH", "SOL", "XAU", "SPX", "NASDAQ"]
+
+        def extract_symbol(text: str):
+            text = text.upper()
+            for sym in KNOWN_SYMBOLS:
+                if f"${sym}" in text or sym in text:
+                    return sym
+            return "BTC"
+
         intent_data = route_intent(input)
         task = format_for_model(intent_data)
 
         if task["type"] != "openai":
             return {"error": "Only OpenAI tasks are supported in this route."}
 
-        # 1. Extract symbol from input
-        match = re.search(r"\$?([A-Z]{2,6})", input.upper())
-        symbol = match.group(1) if match else "BTC"
+        # 1. Extract symbol from input using smart match
+        symbol = extract_symbol(input)
 
         # 2. Fetch live OHLC data
         from market_data_ws import get_latest_ohlc
@@ -69,7 +78,6 @@ async def chat_router(
             f"- Open: {price_data.get('open', 'N/A')} | High: {price_data.get('high', 'N/A')} | Low: {price_data.get('low', 'N/A')}\n"
             f"- Volume: {price_data.get('volume', 'N/A')}\n"
         )
-
 
         # 3. Load signal and sentiment context
         is_setup = is_trade_setup_question(task["prompt"])
@@ -128,6 +136,7 @@ async def chat_router(
 
     except Exception as e:
         return {"error": str(e)}
+
 
 
 
