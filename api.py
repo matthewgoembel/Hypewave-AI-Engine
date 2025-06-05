@@ -46,51 +46,55 @@ async def chat_router(
     image: UploadFile = File(None)
 ):
     try:
+        import re
         intent_data = route_intent(input)
         task = format_for_model(intent_data)
 
         if task["type"] != "openai":
             return {"error": "Only OpenAI tasks are supported in this route."}
 
-        # 1. Try to extract a trading symbol (e.g. $BTC, ETH, NASDAQ)
-        import re
+        # 1. Extract symbol from input
         match = re.search(r"\$?([A-Z]{2,6})", input.upper())
-        symbol = match.group(1) if match else "BTC"  # Default to BTC if none found
+        symbol = match.group(1) if match else "BTC"
 
-        # 2. Load context + latest pattern data
+        # 2. Fetch live OHLC data
+        from market_data_ws import get_latest_ohlc
+        price_data = get_latest_ohlc(f"{symbol}USDT", "1h") or {}
+        price_summary = (
+            f"**Live Price Data for ${symbol}:**\n"
+            f"- Price: ${price_data.get('close', 'N/A')}\n"
+            f"- Open: {price_data.get('open', 'N/A')} | High: {price_data.get('high', 'N/A')} | Low: {price_data.get('low', 'N/A')}\n"
+            f"- Volume: {price_data.get('volume', 'N/A')}\n"
+        )
+
+        # 3. Load signal and sentiment context
         is_setup = is_trade_setup_question(task["prompt"])
         market_context = get_market_context(input)
         pattern_signals = generate_alerts_for_symbol(symbol)
+        formatted_signals = "\n".join([f"- {s}" for s in pattern_signals[:5]])
 
-        # Format as bullet list
-        formatted_signals = "\n".join([f"- {s}" for s in pattern_signals[:5]])  # Limit to 5
-
-        # 3. Build dynamic system prompt
+        # 4. Build prompt with price + signals + sentiment
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
             system_prompt = (
                 f"You are Hypewave AI, a trading expert and partner of the user.\n"
                 f"You are striving for a perfect winrate — something only a machine could pull off.\n"
-                f"Whenever you are given a question or prompt, NEVER refer to yourself as an AI, and never say 'As an AI, I can't'.\n"
-                f"You are a trader. Be confident, tactical, and specific. Use real-time data and chart info to make your desisions, as well as news and other outside influences\n"
-                f"You offer the scenario that you think will play out and what the trader should look for and when they would enter, as if they are your trading partner.\n\n"
-                f"**Live Chart Signals for ${symbol}:**\n"
-                f"{formatted_signals}\n\n"
-                f"**Sentiment & Macro Context:**\n"
-                f"{market_context}\n\n"
-                f"🧠 Format your answers with:\n"
-                f"- Bullet points\n"
-                f"- Headers if helpful\n"
-                f"- Bolded key terms (e.g. FVG, BOS, SFP)\n"
-                f"- NEVER one giant paragraph."
+                f"NEVER refer to yourself as an AI.\n"
+                f"You are a trader. Be confident, tactical, and specific.\n"
+                f"Offer bullish and bearish scenarios.\n\n"
+                f"{price_summary}\n"
+                f"**Live Chart Signals for ${symbol}:**\n{formatted_signals}\n\n"
+                f"**Sentiment & Macro Context:**\n{market_context}\n\n"
+                f"🧠 Format with bullet points, headers, bolded terms, and NO dense paragraphs."
             )
         else:
             system_prompt = (
                 task["system_prompt"]
-                + f"\n\n**Live Chart Signals for ${symbol}:**\n{formatted_signals}"
+                + f"\n\n{price_summary}"
+                + f"\n**Live Chart Signals for ${symbol}:**\n{formatted_signals}"
                 + f"\n\n**Market Context:**\n{market_context}"
             )
 
-        # 4. Build GPT messages
+        # 5. Build and send GPT messages
         messages = [{"role": "system", "content": system_prompt}]
         user_content = {"type": "text", "text": task["prompt"]}
 
@@ -108,7 +112,6 @@ async def chat_router(
         else:
             messages.append({"role": "user", "content": task["prompt"]})
 
-        # 5. Send to OpenAI
         response = client.chat.completions.create(
             model="gpt-4.1" if image else "gpt-4",
             messages=messages,
@@ -121,7 +124,7 @@ async def chat_router(
 
     except Exception as e:
         return {"error": str(e)}
-\
+
 
 
 async def process_chart_analysis(chart: UploadFile, bias: str, timeframe: str, entry_intent: str, question: str):
