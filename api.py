@@ -60,12 +60,16 @@ async def chat_router(
         # 2. Fetch live OHLC data
         from market_data_ws import get_latest_ohlc
         price_data = get_latest_ohlc(f"{symbol}USDT", "1h") or {}
+
+        print(f"[DEBUG] Live OHLC fetched for {symbol}USDT:", price_data)  # ✅ Add this
+
         price_summary = (
             f"**Live Price Data for ${symbol}:**\n"
             f"- Price: ${price_data.get('close', 'N/A')}\n"
             f"- Open: {price_data.get('open', 'N/A')} | High: {price_data.get('high', 'N/A')} | Low: {price_data.get('low', 'N/A')}\n"
             f"- Volume: {price_data.get('volume', 'N/A')}\n"
         )
+
 
         # 3. Load signal and sentiment context
         is_setup = is_trade_setup_question(task["prompt"])
