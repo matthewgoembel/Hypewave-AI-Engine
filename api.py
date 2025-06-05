@@ -14,7 +14,8 @@ from twitter_fetcher import run_loop as twitter_run_loop
 from twitter_fetcher import get_latest_saved_tweets
 from signal_engine import generate_alerts_for_symbol
 from auto_signal_runner import start_signal_engine
-from market_data_ws import start_ws_listener 
+from market_data_ws import start_ws_listener
+from fastapi import Body
 import base64, random, os, re, threading
 
 
@@ -345,20 +346,28 @@ async def get_latest_alerts(limit: int = 5):
 
 @app.post("/webhook/tradingview")
 async def tradingview_webhook(payload: dict = Body(...)):
-    try:
-        symbol = payload.get("symbol", "UNKNOWN")
-        event = payload.get("event", "alert")
-        price = payload.get("price", "N/A")
-        note = payload.get("note", "")
+    symbol = payload.get("symbol", "UNKNOWN")
+    pattern = payload.get("pattern", "Unknown Pattern")
+    timeframe = payload.get("timeframe", "N/A")
+    note = payload.get("note", "")
 
-        msg = f"📢 ${symbol} TradingView Alert — {event.upper()} @ ${price} — {note}"
-        log_alert("tv_webhook", {"symbol": symbol}, {"result": msg, "source": "tradingview"})
+    alert_data = {
+        "symbol": symbol,
+        "pattern": pattern,
+        "timeframe": timeframe,
+        "note": note,
+        "confidence": 100,
+        "source": "TradingView"
+    }
 
-        return {"status": "ok", "message": msg}
-    except Exception as e:
-        return {"error": str(e)}
+    from db import log_alert
+    log_alert(symbol, note)
+
+    return {"status": "received", "data": alert_data}
+
 
 @app.on_event("startup")
 def on_startup():
     start_signal_engine()
     start_ws_listener()  # ✅ This ensures Binance WS starts
+

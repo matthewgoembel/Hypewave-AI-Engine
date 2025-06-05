@@ -41,7 +41,7 @@ def detect_equal_highs_lows(ohlc: dict, symbol: str) -> List[dict]:
         result("Equal Lows", "1h", symbol, "Liquidity resting below equal lows")
     ]
 
-# Previous Day High/Low + Confluence
+# Previous Day High/Low 
 def detect_prev_day_levels(ohlc: dict, symbol: str) -> List[dict]:
     return [
         result("Prev Day High + SFP", "1h", symbol, "Sweep of yesterday's high with rejection"),
