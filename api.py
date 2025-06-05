@@ -38,7 +38,7 @@ def start_twitter_fetcher():
 
 @app.get("/")
 def root():
-    return {"message": "Hypewave API is live"}
+    return {"message": "Hypewave AI is alive 🚀"}
 
 @app.post("/chat")
 async def chat_router(
