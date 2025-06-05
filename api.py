@@ -38,7 +38,7 @@ def start_twitter_fetcher():
 
 @app.get("/")
 def root():
-    return {"message": "Hypewave AI is alive 🚀"}
+    return {"message": "Hypewave AI is live 🚀"}
 
 @app.post("/chat")
 async def chat_router(
@@ -52,39 +52,45 @@ async def chat_router(
         if task["type"] != "openai":
             return {"error": "Only OpenAI tasks are supported in this route."}
 
-        # 1. Load context + latest pattern data
+        # 1. Try to extract a trading symbol (e.g. $BTC, ETH, NASDAQ)
+        import re
+        match = re.search(r"\$?([A-Z]{2,6})", input.upper())
+        symbol = match.group(1) if match else "BTC"  # Default to BTC if none found
+
+        # 2. Load context + latest pattern data
         is_setup = is_trade_setup_question(task["prompt"])
         market_context = get_market_context(input)
-        pattern_signals = generate_alerts_for_symbol("BTC")  # You can dynamically parse symbol later
+        pattern_signals = generate_alerts_for_symbol(symbol)
 
         # Format as bullet list
         formatted_signals = "\n".join([f"- {s}" for s in pattern_signals[:5]])  # Limit to 5
 
-        # 2. Choose correct prompt structure
+        # 3. Build dynamic system prompt
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
             system_prompt = (
-                "You are Hypewave AI, a trading expert and partner of the user.\n"
-                "You are striving for a perfect winrate — something only a machine could pull off.\n"
-                "Whenever you given a question or prompot, NEVER refer to yourself as an AI, and you never say 'As an AI, I cant. You are a trader. Be confident, tactical, and specific.\n"
-                "You offer the bullish and bearish scenarios, but always help guide the user as if It is your trading partner, so you dont want them to lose.\n\n"
-                "**Live Chart Signals (latest):**\n"
+                f"You are Hypewave AI, a trading expert and partner of the user.\n"
+                f"You are striving for a perfect winrate — something only a machine could pull off.\n"
+                f"Whenever you are given a question or prompt, NEVER refer to yourself as an AI, and never say 'As an AI, I can't'.\n"
+                f"You are a trader. Be confident, tactical, and specific.\n"
+                f"You offer the bullish and bearish scenarios, but always help guide the user as if they are your trading partner.\n\n"
+                f"**Live Chart Signals for ${symbol}:**\n"
                 f"{formatted_signals}\n\n"
-                "**Sentiment & Macro Context:**\n"
+                f"**Sentiment & Macro Context:**\n"
                 f"{market_context}\n\n"
-                "🧠 Format your answers with:\n"
-                "- Bullet points\n"
-                "- Headers if helpful\n"
-                "- Bolded key terms (e.g. FVG, BOS, SFP)\n"
-                "- NEVER one giant paragraph."
+                f"🧠 Format your answers with:\n"
+                f"- Bullet points\n"
+                f"- Headers if helpful\n"
+                f"- Bolded key terms (e.g. FVG, BOS, SFP)\n"
+                f"- NEVER one giant paragraph."
             )
         else:
             system_prompt = (
                 task["system_prompt"]
-                + f"\n\n**Live Chart Signals:**\n{formatted_signals}"
+                + f"\n\n**Live Chart Signals for ${symbol}:**\n{formatted_signals}"
                 + f"\n\n**Market Context:**\n{market_context}"
             )
 
-        # 3. Build full message stack
+        # 4. Build GPT messages
         messages = [{"role": "system", "content": system_prompt}]
         user_content = {"type": "text", "text": task["prompt"]}
 
@@ -102,7 +108,7 @@ async def chat_router(
         else:
             messages.append({"role": "user", "content": task["prompt"]})
 
-        # 4. Get GPT response
+        # 5. Send to OpenAI
         response = client.chat.completions.create(
             model="gpt-4.1" if image else "gpt-4",
             messages=messages,
@@ -115,8 +121,7 @@ async def chat_router(
 
     except Exception as e:
         return {"error": str(e)}
-
-
+\
 
 
 async def process_chart_analysis(chart: UploadFile, bias: str, timeframe: str, entry_intent: str, question: str):

@@ -1,8 +1,9 @@
+# signal_engine.py
+
 from typing import List
 from market_context import get_market_context
 from db import log_alert
-from market_data_ws import get_latest_ohlc  # ⬅️ Live OHLC import
-
+from market_data_ws import get_latest_ohlc
 from pattern_detection import (
     detect_fvg,
     detect_order_block,
@@ -31,12 +32,12 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
 
     # Optional: Sentiment-based alerts
     if "Funding Rate" in context and "0." in context:
-        msg = f"${symbol} elevated funding rate detected. Possible squeeze setup."
+        msg = f"{symbol}: Elevated funding rate detected. Possible squeeze setup."
         log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
         alerts.append(msg)
 
     if "Fear" in context and "Greed" in context:
-        msg = f"${symbol} sentiment extreme detected. Proceed with caution."
+        msg = f"{symbol}: Sentiment extreme detected. Proceed with caution."
         log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
         alerts.append(msg)
 
@@ -44,13 +45,14 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
     for tf in ["15m", "1h", "4h"]:
         ohlc = get_latest_ohlc(f"{symbol}USDT", tf)
         if not ohlc:
-            continue  # skip if no data
+            continue
 
         for func in pattern_funcs:
             results = func(ohlc, symbol)
             for pattern in results:
                 emoji = "🔴" if "bearish" in pattern['note'].lower() else "🔵"
-                msg = f"{emoji} ${symbol} {pattern['note']} on the {pattern['timeframe']}"
+                price = ohlc.get("close", "N/A")
+                msg = f"{emoji} ${symbol} | {pattern['note']} | {tf} | Price: {price}"
                 log_alert("auto", {"symbol": symbol}, {
                     "result": msg,
                     "source": pattern["pattern"],
