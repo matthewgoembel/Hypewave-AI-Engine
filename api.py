@@ -70,20 +70,20 @@ async def chat_router(
         from market_data_ws import get_latest_ohlc
         price_data = get_latest_ohlc(f"{symbol}USDT", "1h") or {}
 
-        print(f"[DEBUG] Live OHLC fetched for {symbol}USDT:", price_data)  # ✅ Add this
+        print(f"[DEBUG] Live OHLC fetched for {symbol}USDT:", price_data)
 
         price_summary = (
-            f"**Live Price Data for ${symbol}:**\n"
-            f"- Price: ${price_data.get('close', 'N/A')}\n"
-            f"- Open: {price_data.get('open', 'N/A')} | High: {price_data.get('high', 'N/A')} | Low: {price_data.get('low', 'N/A')}\n"
-            f"- Volume: {price_data.get('volume', 'N/A')}\n"
+            f"<b>Live Price Data for ${symbol}:</b><br>"
+            f"• Price: ${price_data.get('close', 'N/A')}<br>"
+            f"• Open: {price_data.get('open', 'N/A')} | High: {price_data.get('high', 'N/A')} | Low: {price_data.get('low', 'N/A')}<br>"
+            f"• Volume: {price_data.get('volume', 'N/A')}<br>"
         )
 
         # 3. Load signal and sentiment context
         is_setup = is_trade_setup_question(task["prompt"])
         market_context = get_market_context(input)
         pattern_signals = generate_alerts_for_symbol(symbol)
-        formatted_signals = "\n".join([f"- {s}" for s in pattern_signals[:5]])
+        formatted_signals = "<br>".join([f"• {s}" for s in pattern_signals[:5]])
 
         # 4. Build prompt with price + signals + sentiment
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
@@ -94,16 +94,16 @@ async def chat_router(
                 f"You are a trader. Be confident, tactical, and specific.\n"
                 f"Offer bullish and bearish scenarios.\n\n"
                 f"{price_summary}\n"
-                f"**Live Chart Signals for ${symbol}:**\n{formatted_signals}\n\n"
-                f"**Sentiment & Macro Context:**\n{market_context}\n\n"
+                f"<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}\n\n"
+                f"<b>Sentiment & Macro Context:</b><br>{market_context}\n\n"
                 f"🧠 Format with bullet points, headers, bolded terms, and NO dense paragraphs."
             )
         else:
             system_prompt = (
                 task["system_prompt"]
                 + f"\n\n{price_summary}"
-                + f"\n**Live Chart Signals for ${symbol}:**\n{formatted_signals}"
-                + f"\n\n**Market Context:**\n{market_context}"
+                + f"\n<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}"
+                + f"\n\n<b>Market Context:</b><br>{market_context}"
             )
 
         # 5. Build and send GPT messages
@@ -130,12 +130,15 @@ async def chat_router(
             max_tokens=1200
         )
 
-        result = response.choices[0].message.content.strip()
-        log_signal("demo", {"input": input}, {"result": result, "source": "chat.analysis"})
-        return {"intent": intent_data["intent"], "result": result}
+        raw_output = response.choices[0].message.content.strip()
+        html_output = raw_output.replace("**", "<b>", 1).replace("**", "</b>", 1).replace("\n", "<br>")
+
+        log_signal("demo", {"input": input}, {"result": html_output, "source": "chat.analysis"})
+        return {"intent": intent_data["intent"], "result": html_output}
 
     except Exception as e:
         return {"error": str(e)}
+
 
 
 
