@@ -9,7 +9,7 @@ from db import client as mongo_client
 TWITTER_BEARER = os.getenv("TWITTER_BEARER_TOKEN")
 if not TWITTER_BEARER:
     raise RuntimeError("Set TWITTER_BEARER_TOKEN in your .env")
-
+ 
 POLL_INTERVAL = 1800  # 30 minutes
 STARTUP_TIME = datetime.now(timezone.utc)
 
@@ -78,16 +78,30 @@ def fetch_new_for_user(handle: str, max_results: int = 5) -> List:
 # ——— Save to MongoDB ———
 def save_tweets(source: str, tweets: List) -> None:
     for tw in tweets:
+        tweet_url = f"https://x.com/{source}/status/{tw.id}"
         tweets_coll.update_one(
             {"tweet_id": tw.id},
             {"$set": {
                 "tweet_id":   tw.id,
+                "tweet_url":  tweet_url,
                 "user":       source,
                 "content":    tw.text,
                 "created_at": tw.created_at.isoformat()
             }},
             upsert=True
         )
+
+def get_latest_saved_tweets(limit: int = 10):
+    docs = tweets_coll.find().sort("created_at", -1).limit(limit)
+    return [
+        {
+            "username": doc["user"],
+            "tweet_url": doc.get("tweet_url"),
+            "timestamp": doc["created_at"]
+        }
+        for doc in docs if doc.get("tweet_url")
+    ]
+
 
 # ——— Main Loop ———
 def run_loop(interval_seconds: int = POLL_INTERVAL) -> None:

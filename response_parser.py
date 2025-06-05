@@ -1,7 +1,7 @@
 import re
 
 def parse_gpt_response(text: str) -> dict:
-    keys = ["Setup", "Bias", "Volume", "Confidence", "Entry Zone", "Invalidation", "Notes"]
+    keys = ["Bias", "Volume", "Confidence", "Trade Setup", "Notes"]
     result = {}
     for key in keys:
         match = re.search(f"{key}: (.+)", text, re.IGNORECASE)

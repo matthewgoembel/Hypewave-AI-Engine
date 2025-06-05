@@ -11,6 +11,10 @@ from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
 from alert_engine import generate_alert
 from twitter_fetcher import run_loop as twitter_run_loop
+from twitter_fetcher import get_latest_saved_tweets
+from signal_engine import generate_alerts_for_symbol
+from auto_signal_runner import start_signal_engine
+from market_data_ws import start_ws_listener 
 import base64, random, os, re, threading
 
 
@@ -222,15 +226,10 @@ async def chat_with_chart(
 async def generate_alerts(symbols: list[str] = Body(...)):
     all_alerts = {}
     for symbol in symbols:
-        alerts = generate_alert(symbol.upper())
+        alerts = generate_alerts_for_symbol(symbol.upper())
         if alerts:
             all_alerts[symbol] = alerts
     return {"generated_alerts": all_alerts}
-
-@app.post("/alerts/generate")
-async def generate_signals():
-    await run_signal_check()
-    return {"status": "Signal check completed"}
 
 @app.post("/analyze_chart")
 async def analyze_chart(
@@ -242,7 +241,12 @@ async def analyze_chart(
 ):
     return await process_chart_analysis(chart, bias, timeframe, entry_intent, question)
 
-
+@app.get("/news/latest")
+async def fetch_news(limit: int = 10):
+    try:
+        return get_latest_saved_tweets(limit=limit)
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/analyze")
 async def analyze(prompt: str = Query(..., min_length=5)):
@@ -285,8 +289,11 @@ async def get_latest_signals(limit: int = 5):
 
 @app.get("/alerts/live")
 async def get_latest_alerts(limit: int = 5):
+    from db import client as mongo_client
+    alerts_coll = mongo_client["hypewave"]["alerts"]
+
     try:
-        cursor = collection.find({"output.source": "auto-alert"}).sort("created_at", DESCENDING).limit(limit)
+        cursor = alerts_coll.find().sort("created_at", -1).limit(limit)
         results = [
             {
                 "output": doc.get("output"),
@@ -298,17 +305,22 @@ async def get_latest_alerts(limit: int = 5):
     except Exception as e:
         return {"error": str(e)}
 
-
-@app.post("/alerts/mock")
-def mock_alert():
+@app.post("/webhook/tradingview")
+async def tradingview_webhook(payload: dict = Body(...)):
     try:
-        symbols = ["BTC", "ETH", "SOL", "AVAX", "LINK"]
-        symbol = random.choice(symbols)
-        alert = {
-            "result": f"Potential {symbol} breakout. Monitor for SFP or volume spike.",
-            "source": "auto-alert"
-        }
-        log_alert("system", {}, alert)
-        return {"status": "Mock alert inserted"}
+        symbol = payload.get("symbol", "UNKNOWN")
+        event = payload.get("event", "alert")
+        price = payload.get("price", "N/A")
+        note = payload.get("note", "")
+
+        msg = f"📢 ${symbol} TradingView Alert — {event.upper()} @ ${price} — {note}"
+        log_alert("tv_webhook", {"symbol": symbol}, {"result": msg, "source": "tradingview"})
+
+        return {"status": "ok", "message": msg}
     except Exception as e:
         return {"error": str(e)}
+
+@app.on_event("startup")
+def on_startup():
+    start_signal_engine()
+    start_ws_listener()  # ✅ This ensures Binance WS starts

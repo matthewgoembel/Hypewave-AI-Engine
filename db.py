@@ -18,11 +18,12 @@ try:
 except Exception as e:
     print("MongoDB connection failed:", e)
 
-# Select DB and Collection
+# Collections
 db = client["hypewave"]
 collection = db["signals"]
+alerts_coll = db["alerts"]
 
-# Logging function
+# Logging functions
 def log_signal(user_id: str, input_data: dict, output_data: dict):
     entry = {
         "user_id": user_id,
@@ -40,6 +41,5 @@ def log_alert(user_id: str, input_data: dict, output_data: dict):
         "output": output_data,
         "created_at": datetime.now(timezone.utc)
     }
-    result = collection.insert_one(entry)
+    result = alerts_coll.insert_one(entry)
     return str(result.inserted_id)
-
