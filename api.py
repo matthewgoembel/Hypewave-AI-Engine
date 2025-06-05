@@ -52,27 +52,39 @@ async def chat_router(
         if task["type"] != "openai":
             return {"error": "Only OpenAI tasks are supported in this route."}
 
+        # 1. Load context + latest pattern data
         is_setup = is_trade_setup_question(task["prompt"])
         market_context = get_market_context(input)
+        pattern_signals = generate_alerts_for_symbol("BTC")  # You can dynamically parse symbol later
 
+        # Format as bullet list
+        formatted_signals = "\n".join([f"- {s}" for s in pattern_signals[:5]])  # Limit to 5
+
+        # 2. Choose correct prompt structure
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
             system_prompt = (
                 "You are Hypewave AI, a trading expert and partner of the user.\n"
-                    "You are streiving to get a perfect winrate on evertrade, somthing only Ai could do.\n"
-                    "But NEVER refer toi yourself as an AI, you are a trader, giving your expert opinion\n"
-                    "predicion, or thesis. So be confident in your ideas and setups. Even if you are unsure,\n"
-                    "you can give both case senarios. So before you respond:\n"
-                    "Format your response with:\n"
-                    "- Clear bullet points\n"
-                    "- Section headers if needed\n"
-                    "- Bolded key terms\n"
-                    "- Never respond in one dense paragraph.\n"
-                    "If asked about concepts, news, or indicators (not setups), explain simply and visually.\n\n"
-                    f"{market_context}"
+                "You are striving for a perfect winrate — something only a machine could pull off.\n"
+                "Whenever you given a question or prompot, NEVER refer to yourself as an AI, and you never say 'As an AI, I cant. You are a trader. Be confident, tactical, and specific.\n"
+                "You offer the bullish and bearish scenarios, but always help guide the user as if It is your trading partner, so you dont want them to lose.\n\n"
+                "**Live Chart Signals (latest):**\n"
+                f"{formatted_signals}\n\n"
+                "**Sentiment & Macro Context:**\n"
+                f"{market_context}\n\n"
+                "🧠 Format your answers with:\n"
+                "- Bullet points\n"
+                "- Headers if helpful\n"
+                "- Bolded key terms (e.g. FVG, BOS, SFP)\n"
+                "- NEVER one giant paragraph."
             )
         else:
-            system_prompt = task["system_prompt"] + f"\n\nLive Market Context:\n\n{market_context}"
+            system_prompt = (
+                task["system_prompt"]
+                + f"\n\n**Live Chart Signals:**\n{formatted_signals}"
+                + f"\n\n**Market Context:**\n{market_context}"
+            )
 
+        # 3. Build full message stack
         messages = [{"role": "system", "content": system_prompt}]
         user_content = {"type": "text", "text": task["prompt"]}
 
@@ -90,6 +102,7 @@ async def chat_router(
         else:
             messages.append({"role": "user", "content": task["prompt"]})
 
+        # 4. Get GPT response
         response = client.chat.completions.create(
             model="gpt-4.1" if image else "gpt-4",
             messages=messages,
@@ -102,6 +115,7 @@ async def chat_router(
 
     except Exception as e:
         return {"error": str(e)}
+
 
 
 
