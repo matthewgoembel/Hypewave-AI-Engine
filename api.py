@@ -9,7 +9,6 @@ from intent_router import route_intent, format_for_model, is_trade_setup_questio
 from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
-from alert_engine import generate_alert
 from twitter_fetcher import run_loop as twitter_run_loop
 from twitter_fetcher import get_latest_saved_tweets
 from signal_engine import generate_alerts_for_symbol
@@ -347,27 +346,26 @@ async def get_latest_alerts(limit: int = 5):
 @app.post("/webhook/tradingview")
 async def tradingview_webhook(payload: dict = Body(...)):
     symbol = payload.get("symbol", "UNKNOWN")
-    pattern = payload.get("pattern", "Unknown Pattern")
+    event = payload.get("event", "Unknown Event")
     timeframe = payload.get("timeframe", "N/A")
-    note = payload.get("note", "")
+    alert_type = payload.get("type", "N/A")
 
-    alert_data = {
+    signal_data = {
         "symbol": symbol,
-        "pattern": pattern,
         "timeframe": timeframe,
-        "note": note,
-        "confidence": 100,
+        "event": event,
+        "type": alert_type,
         "source": "TradingView"
     }
 
-    from db import log_alert
-    log_alert(symbol, note)
+    from db import log_signal
+    await log_signal("tv", {"symbol": symbol}, {"result": event, "source": "TradingView", "timeframe": timeframe})
+    return {"status": "received", "data": signal_data}
 
-    return {"status": "received", "data": alert_data}
 
 
 @app.on_event("startup")
 def on_startup():
-    start_signal_engine()
+    # start_signal_engine()
     start_ws_listener()  # ✅ This ensures Binance WS starts
 
