@@ -308,7 +308,7 @@ async def analyze(prompt: str = Query(..., min_length=5)):
 
 
 @app.get("/signals/latest")
-async def get_latest_signals(limit: int = 5):
+async def get_latest_signals(limit: int = 50):
     try:
         cursor = collection.find({"output.source": {"$ne": "auto-alert"}}).sort("created_at", DESCENDING).limit(limit)
         results = [

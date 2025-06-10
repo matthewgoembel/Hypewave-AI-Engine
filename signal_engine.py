@@ -32,7 +32,7 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
 
     # Optional: Sentiment-based alerts
     if "Funding Rate" in context and "0." in context:
-        msg = f"{symbol}: Elevated funding rate detected. Possible squeeze setup."
+        msg = f"{symbol}: Elevated funding rate detected. Possible squeeze sup."
         log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
         alerts.append(msg)
 
