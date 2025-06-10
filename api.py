@@ -16,6 +16,7 @@ from auto_signal_runner import start_signal_engine
 from market_data_ws import start_ws_listener
 from fastapi import Body
 import base64, random, os, re, threading
+from datetime import datetime, timezone
 
 
 load_dotenv()
@@ -91,7 +92,7 @@ async def chat_router(
                 f"You are Hypewave AI, a trading expert and partner of the user.\n"
                 f"You are striving for a perfect winrate — something only a machine could pull off.\n"
                 f"NEVER refer to yourself as an AI.\n"
-                f"You are a trader. Be confident, tactical, and specific.\n"
+                f"You are a trader. Be confident, tactical, and specific. Always give an answer even is unsure.\n"
                 f"Offer bullish and bearish scenarios.\n\n"
                 f"{price_summary}\n"
                 f"<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}\n\n"
@@ -349,18 +350,28 @@ async def tradingview_webhook(payload: dict = Body(...)):
     event = payload.get("event", "Unknown Event")
     timeframe = payload.get("timeframe", "N/A")
     alert_type = payload.get("type", "N/A")
+    timestamp = payload.get("timestamp")  # from TradingView JSON
 
-    signal_data = {
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "event": event,
-        "type": alert_type,
-        "source": "TradingView"
+    # Convert timestamp (if valid)
+    try:
+        created_at = datetime.fromtimestamp(int(timestamp) / 1000, tz=timezone.utc)
+    except Exception:
+        created_at = datetime.now(timezone.utc)
+
+    from db import collection
+    entry = {
+        "user_id": "tv",
+        "input": {"symbol": symbol},
+        "output": {
+            "result": event,
+            "source": "TradingView",
+            "timeframe": timeframe
+        },
+        "created_at": created_at
     }
 
-    from db import log_signal
-    await log_signal("tv", {"symbol": symbol}, {"result": event, "source": "TradingView", "timeframe": timeframe})
-    return {"status": "received", "data": signal_data}
+    await collection.insert_one(entry)
+    return {"status": "received", "data": entry}
 
 
 
