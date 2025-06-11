@@ -31,8 +31,18 @@ def log_signal(user_id: str, input_data: dict, output_data: dict):
         "output": output_data,
         "created_at": datetime.now(timezone.utc)
     }
-    result = collection.insert_one(entry)
-    return str(result.inserted_id)
+
+    # Define a unique signature for this signal (avoid exact duplicates)
+    unique_filter = {
+        "user_id": user_id,
+        "input.symbol": input_data.get("symbol"),
+        "output.result": output_data.get("result"),
+        "output.timeframe": output_data.get("timeframe"),
+        "created_at": entry["created_at"]
+    }
+
+    collection.update_one(unique_filter, {"$set": entry}, upsert=True)
+
 
 def log_alert(user_id: str, input_data: dict, output_data: dict):
     entry = {
