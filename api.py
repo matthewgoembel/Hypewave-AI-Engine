@@ -13,6 +13,7 @@ from db import get_latest_news
 from signal_engine import generate_alerts_for_symbol
 from auto_signal_runner import start_signal_engine
 from market_data_ws import start_ws_listener
+from fastapi.staticfiles import StaticFiles
 import asyncio
 from telegram_tracker import loop_fetch
 from fastapi import Body
@@ -32,6 +33,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/media", StaticFiles(directory="media"), name="media")
 
 @app.on_event("startup")
 async def start_telegram_scraper():

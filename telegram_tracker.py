@@ -18,8 +18,12 @@ async def fetch_latest():
             async for message in tg_client.iter_messages(username, limit=20):
                 if message.text and not collection.find_one({"id": message.id, "source": username}):
                     media_url = None
-                    if message.media:
-                        media_url = f"https://t.me/{username}/{message.id}"
+
+                    # Download media locally if available
+                    if message.media and message.photo:
+                        path = await tg_client.download_media(message.media, file="media/")
+                        if path:
+                            media_url = f"/media/{os.path.basename(path)}"
 
                     doc = {
                         "id": message.id,
@@ -41,7 +45,7 @@ async def fetch_latest():
 async def loop_fetch():
     while True:
         await fetch_latest()
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
 
 if __name__ == "__main__":
     asyncio.run(loop_fetch())
