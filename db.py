@@ -53,3 +53,16 @@ def log_alert(user_id: str, input_data: dict, output_data: dict):
     }
     result = alerts_coll.insert_one(entry)
     return str(result.inserted_id)
+
+def get_latest_news(limit=10):
+    coll = client["hypewave"]["telegram_news"]
+    cursor = coll.find().sort("date", -1).limit(limit)
+    return [
+        {
+            "text": doc.get("text"),
+            "link": doc.get("link"),
+            "timestamp": doc.get("date")
+        }
+        for doc in cursor
+    ]
+

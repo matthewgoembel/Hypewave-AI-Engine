@@ -9,8 +9,7 @@ from intent_router import route_intent, format_for_model, is_trade_setup_questio
 from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
-from twitter_fetcher import run_loop as twitter_run_loop
-from twitter_fetcher import get_latest_saved_tweets
+from db import get_latest_news
 from signal_engine import generate_alerts_for_symbol
 from auto_signal_runner import start_signal_engine
 from market_data_ws import start_ws_listener
@@ -283,9 +282,10 @@ async def analyze_chart(
 @app.get("/news/latest")
 async def fetch_news(limit: int = 10):
     try:
-        return get_latest_saved_tweets(limit=limit)
+        return get_latest_news(limit=limit)
     except Exception as e:
         return {"error": str(e)}
+
 
 @app.get("/analyze")
 async def analyze(prompt: str = Query(..., min_length=5)):
