@@ -31,9 +31,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-def start_twitter_fetcher():
-    threading.Thread(target=lambda: twitter_run_loop(60), daemon=True).start()
+#@app.on_event("startup")
+#def start_twitter_fetcher():
+    #threading.Thread(target=lambda: twitter_run_loop(60), daemon=True).start()
 
 
 @app.get("/")
