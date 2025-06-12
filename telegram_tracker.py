@@ -13,9 +13,9 @@ channel_usernames = ["hypewaveai", "WatcherGuru", "CryptoProUpdates", "TreeNewsF
 collection = client["hypewave"]["telegram_news"]
 
 async def fetch_latest():
-    async with TelegramClient("news_session", api_id, api_hash) as client:
+    async with TelegramClient("news_session", api_id, api_hash) as tg_client:
         for username in channel_usernames:
-            async for message in client.iter_messages(username, limit=20):
+            async for message in tg_client.iter_messages(username, limit=20):
                 if message.text and not collection.find_one({"id": message.id, "source": username}):
                     doc = {
                         "id": message.id,
@@ -27,3 +27,10 @@ async def fetch_latest():
                     collection.insert_one(doc)
                     print(f"✅ [{username}] {doc['text'][:60]}...")
 
+async def loop_fetch():
+    while True:
+        await fetch_latest()
+        await asyncio.sleep(10)
+
+if __name__ == "__main__":
+    asyncio.run(loop_fetch())
