@@ -62,8 +62,11 @@ def get_latest_news(limit=10):
         {
             "text": doc.get("text"),
             "link": doc.get("link"),
-            "timestamp": doc.get("date")
+            "timestamp": doc.get("date"),
+            "source": doc.get("source"),         # ✅ add this line
+            "media_url": doc.get("media_url")    # ✅ optional for images
         }
         for doc in cursor
     ]
+
 
