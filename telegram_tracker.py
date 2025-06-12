@@ -9,7 +9,7 @@ load_dotenv()
 
 api_id = int(os.getenv("TELEGRAM_API_ID"))
 api_hash = os.getenv("TELEGRAM_API_HASH")
-channel_username = "HypeWaves"  # no @ symbol
+channel_username = "hypewaveai", "WatcherGuru", "CryptoProUpdates"  # no @ symbol
 collection = client["hypewave"]["telegram_news"]
 
 async def fetch_latest():
