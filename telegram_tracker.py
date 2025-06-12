@@ -41,7 +41,7 @@ async def fetch_latest():
 async def loop_fetch():
     while True:
         await fetch_latest()
-        await asyncio.sleep(10)
+        await asyncio.sleep(5)
 
 if __name__ == "__main__":
     asyncio.run(loop_fetch())

@@ -27,21 +27,21 @@ pattern_funcs = [
 ]
 
 def generate_alerts_for_symbol(symbol: str) -> List[str]:
-    alerts = []
+    alerts = set()  # ⬅ use set to avoid duplicates
     context = get_market_context(f"${symbol}")
 
-    # Optional: Sentiment-based alerts
     if "Funding Rate" in context and "0." in context:
         msg = f"{symbol}: Elevated funding rate detected. Possible squeeze sup."
-        log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
-        alerts.append(msg)
+        if msg not in alerts:
+            log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
+            alerts.add(msg)
 
     if "Fear" in context and "Greed" in context:
         msg = f"{symbol}: Sentiment extreme detected. Proceed with caution."
-        log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
-        alerts.append(msg)
+        if msg not in alerts:
+            log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
+            alerts.add(msg)
 
-    # Pattern detection on multiple timeframes
     for tf in ["15m", "1h", "4h"]:
         ohlc = get_latest_ohlc(f"{symbol}USDT", tf)
         if not ohlc:
@@ -53,12 +53,13 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
                 emoji = "🔴" if "bearish" in pattern['note'].lower() else "🔵"
                 price = ohlc.get("close", "N/A")
                 msg = f"{emoji} ${symbol} | {pattern['note']} | {tf} | Price: {price}"
-                log_alert("auto", {"symbol": symbol}, {
-                    "result": msg,
-                    "source": pattern["pattern"],
-                    "timeframe": tf,
-                    "confidence": pattern.get("confidence", 70)
-                })
-                alerts.append(msg)
+                if msg not in alerts:  # Only log unique messages
+                    log_alert("auto", {"symbol": symbol}, {
+                        "result": msg,
+                        "source": pattern["pattern"],
+                        "timeframe": tf,
+                        "confidence": pattern.get("confidence", 70)
+                    })
+                    alerts.add(msg)
 
-    return alerts
+    return list(alerts)
