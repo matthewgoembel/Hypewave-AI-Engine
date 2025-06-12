@@ -13,6 +13,8 @@ from db import get_latest_news
 from signal_engine import generate_alerts_for_symbol
 from auto_signal_runner import start_signal_engine
 from market_data_ws import start_ws_listener
+import asyncio
+from telegram_tracker import loop_fetch
 from fastapi import Body
 import base64, random, os, re, threading
 from datetime import datetime, timezone
@@ -31,9 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#@app.on_event("startup")
-#def start_twitter_fetcher():
-    #threading.Thread(target=lambda: twitter_run_loop(60), daemon=True).start()
+@app.on_event("startup")
+async def start_telegram_scraper():
+    asyncio.create_task(loop_fetch())
 
 
 @app.get("/")
