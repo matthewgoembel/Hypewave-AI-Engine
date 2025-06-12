@@ -24,3 +24,6 @@ tweepy
 pymongo
 websockets
 python-multipart
+telethon
+certifi
+python-dotenv
