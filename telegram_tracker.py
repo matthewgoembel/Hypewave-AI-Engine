@@ -9,21 +9,21 @@ load_dotenv()
 
 api_id = int(os.getenv("TELEGRAM_API_ID"))
 api_hash = os.getenv("TELEGRAM_API_HASH")
-channel_username = "hypewaveai", "WatcherGuru", "CryptoProUpdates"  # no @ symbol
+channel_usernames = ["hypewaveai", "WatcherGuru", "CryptoProUpdates", "TreeNewsFeed", "thekingsofsolana"]
 collection = client["hypewave"]["telegram_news"]
 
 async def fetch_latest():
     async with TelegramClient("news_session", api_id, api_hash) as client:
-        async for message in client.iter_messages(channel_username, limit=20):
-            if message.text and not collection.find_one({"id": message.id}):
-                doc = {
-                    "id": message.id,
-                    "text": message.text,
-                    "date": message.date.replace(tzinfo=timezone.utc),
-                    "link": f"https://t.me/{channel_username}/{message.id}"
-                }
-                collection.insert_one(doc)
-                print(f"✅ New message saved: {doc['text'][:60]}...")
+        for username in channel_usernames:
+            async for message in client.iter_messages(username, limit=20):
+                if message.text and not collection.find_one({"id": message.id, "source": username}):
+                    doc = {
+                        "id": message.id,
+                        "text": message.text,
+                        "date": message.date.replace(tzinfo=timezone.utc),
+                        "link": f"https://t.me/{username}/{message.id}",
+                        "source": username
+                    }
+                    collection.insert_one(doc)
+                    print(f"✅ [{username}] {doc['text'][:60]}...")
 
-if __name__ == "__main__":
-    asyncio.run(fetch_latest())
