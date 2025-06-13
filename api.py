@@ -85,9 +85,12 @@ async def chat_router(
 
         # 2. Fetch live OHLC data
         from market_data_ws import get_latest_ohlc
-        price_data = get_latest_ohlc(f"{symbol}USDT", "1h") or {}
+        ohlc_list = get_latest_ohlc(f"{symbol}USDT", "1h") or []
 
-        print(f"[DEBUG] Live OHLC fetched for {symbol}USDT:", price_data)
+        # Ensure we get the most recent candle
+        price_data = ohlc_list[-1] if isinstance(ohlc_list, list) and ohlc_list else {}
+
+        print(f"[DEBUG] Live OHLC for {symbol}:", price_data)
 
         price_summary = (
             f"<b>Live Price Data for ${symbol}:</b><br>"
@@ -100,11 +103,10 @@ async def chat_router(
         is_setup = is_trade_setup_question(task["prompt"])
         market_context = get_market_context(input)
         pattern_signals = generate_alerts_for_symbol(symbol)
-        print("[DEBUG] pattern_signals:", pattern_signals)
         formatted_signals = "<br>".join([
-            f"• {s.get('result', str(s))}" if isinstance(s, dict) else f"• {str(s)}"
+            f"• {s['result']}" if isinstance(s, dict) else f"• {str(s)}"
             for s in pattern_signals[:5]
-        ]) if isinstance(pattern_signals, list) else "No signals found."
+        ]) if pattern_signals else "No signals found."
 
         # 4. Build prompt with price + signals + sentiment
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
@@ -112,7 +114,7 @@ async def chat_router(
                 f"You are Hypewave AI, a trading expert and partner of the user.\n"
                 f"You are striving for a perfect winrate — something only a machine could pull off.\n"
                 f"NEVER refer to yourself as an AI.\n"
-                f"You are a trader. Be confident, tactical, and specific. Always give an answer even is unsure.\n"
+                f"You are a trader. Be confident, tactical, and specific. Always give an answer even if unsure.\n"
                 f"Offer bullish and bearish scenarios.\n\n"
                 f"{price_summary}\n"
                 f"<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}\n\n"
@@ -162,6 +164,7 @@ async def chat_router(
             "intent": "error",
             "result": f"<b>⚠️ Error:</b><br>{str(e)}"
         }
+
 
 
 
