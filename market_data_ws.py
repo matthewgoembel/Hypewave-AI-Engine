@@ -70,8 +70,9 @@ async def run_signal_detection():
                     for r in results:
                         print(f"⚡ Pattern Detected: {r}")
                         clean_symbol = symbol.replace("USDT", "").replace("USD", "").upper()
+                        msg = f"${clean_symbol} | {r['note']} | {interval} | Price: {candles[-1]['close']}"
                         log_alert("auto", {"symbol": clean_symbol}, {
-                            "result": f"{r['pattern']} | {r['note']} | {interval} | Price: {candles[-1]['close']}",
+                            "result": msg,
                             "source": r["pattern"],
                             "timeframe": interval,
                             "confidence": r.get("confidence", 70)
