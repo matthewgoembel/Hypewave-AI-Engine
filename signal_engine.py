@@ -1,65 +1,31 @@
 # signal_engine.py
 
 from typing import List
-from market_context import get_market_context
 from db import log_alert
 from market_data_ws import get_latest_ohlc
-from pattern_detection import (
-    detect_fvg,
-    detect_order_block,
-    detect_bos,
-    detect_equal_highs_lows,
-    detect_prev_day_levels,
-    detect_equilibrium_tap,
-    detect_divergence,
-    detect_volume_spike
-)
+from pattern_detection import detect_all_patterns
 
-pattern_funcs = [
-    detect_fvg,
-    detect_order_block,
-    detect_bos,
-    detect_equal_highs_lows,
-    detect_prev_day_levels,
-    detect_equilibrium_tap,
-    detect_divergence,
-    detect_volume_spike
-]
+TIMEFRAMES = ["15m", "1h", "4h"]
 
 def generate_alerts_for_symbol(symbol: str) -> List[str]:
-    alerts = set()  # ⬅ use set to avoid duplicates
-    context = get_market_context(f"${symbol}")
+    alerts = set()
 
-    if "Funding Rate" in context and "0." in context:
-        msg = f"{symbol}: Elevated funding rate detected. Possible squeeze sup."
-        if msg not in alerts:
-            log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
-            alerts.add(msg)
-
-    if "Fear" in context and "Greed" in context:
-        msg = f"{symbol}: Sentiment extreme detected. Proceed with caution."
-        if msg not in alerts:
-            log_alert("auto", {"symbol": symbol}, {"result": msg, "source": "auto-alert"})
-            alerts.add(msg)
-
-    for tf in ["15m", "1h", "4h"]:
-        ohlc = get_latest_ohlc(f"{symbol}USDT", tf)
-        if not ohlc:
+    for tf in TIMEFRAMES:
+        candles = get_latest_ohlc(f"{symbol}USDT", tf)
+        if not candles or len(candles) < 20:
             continue
 
-        for func in pattern_funcs:
-            results = func(ohlc, symbol)
-            for pattern in results:
-                emoji = "🔴" if "bearish" in pattern['note'].lower() else "🔵"
-                price = ohlc.get("close", "N/A")
-                msg = f"{emoji} ${symbol} | {pattern['note']} | {tf} | Price: {price}"
-                if msg not in alerts:  # Only log unique messages
-                    log_alert("auto", {"symbol": symbol}, {
-                        "result": msg,
-                        "source": pattern["pattern"],
-                        "timeframe": tf,
-                        "confidence": pattern.get("confidence", 70)
-                    })
-                    alerts.add(msg)
+        patterns = detect_all_patterns(candles, symbol, tf)
+        for p in patterns:
+            msg = f"${symbol} | {p['note']} | {tf} | Price: {candles[-1]['close']}"
+
+            if msg not in alerts:
+                log_alert("auto", {"symbol": symbol}, {
+                    "result": msg,
+                    "source": p["pattern"],
+                    "timeframe": tf,
+                    "confidence": p.get("confidence", 70)
+                })
+                alerts.add(msg)
 
     return list(alerts)

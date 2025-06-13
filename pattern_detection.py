@@ -1,67 +1,112 @@
 # pattern_detection.py
 
-# This is a mock prototype of your pattern detection engine.
-# Each function will eventually use real OHLC data — for now it returns sample results.
+from typing import List, Dict
+import statistics
 
-from typing import Tuple, List
-
-# Utility result format
-def result(pattern: str, timeframe: str, symbol: str, note: str) -> dict:
+# --- Shared utility for formatting results ---
+def result(pattern: str, timeframe: str, symbol: str, note: str, confidence: int = 75) -> dict:
     return {
         "symbol": symbol,
         "pattern": pattern,
         "timeframe": timeframe,
         "note": note,
-        "confidence": 75
+        "confidence": confidence
     }
 
-# Fair Value Gap (FVG)
-def detect_fvg(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("FVG", "15m", symbol, "Bullish FVG tapped after impulse move"),
-        result("FVG", "1h", symbol, "Bearish FVG forming on rejection")
-    ]
+# --- Fair Value Gap Detection (basic logic) ---
+def detect_fvg(candles: List[dict], symbol: str, tf: str) -> List[dict]:
+    results = []
+    if len(candles) < 3:
+        return results
 
-# Order Block (OB)
-def detect_order_block(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("Order Block", "5m", symbol, "Bullish OB formed before breakout")
-    ]
+    for i in range(2, len(candles)):
+        c1 = candles[i - 2]
+        c2 = candles[i - 1]
+        c3 = candles[i]
 
-# Break of Structure (BOS)
-def detect_bos(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("Break of Structure", "1h", symbol, "BOS confirmed above previous high")
-    ]
+        if c2["low"] > c1["high"]:  # Bullish FVG (gap between candles)
+            results.append(result("FVG", tf, symbol, "Bullish FVG formed", 78))
+        elif c2["high"] < c1["low"]:  # Bearish FVG
+            results.append(result("FVG", tf, symbol, "Bearish FVG formed", 78))
 
-# Equal Highs / Lows
-def detect_equal_highs_lows(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("Equal Highs", "15m", symbol, "Double top / equal highs"),
-        result("Equal Lows", "1h", symbol, "Liquidity resting below equal lows")
-    ]
+    return results
 
-# Previous Day High/Low 
-def detect_prev_day_levels(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("Prev Day High + SFP", "1h", symbol, "Sweep of yesterday's high with rejection"),
-        result("Prev Day Low + EQ", "15m", symbol, "Tap into previous low + equilibrium")
-    ]
+# --- Basic RSI Divergence Detector (fake RSI + divergence) ---
+def detect_divergence(candles: List[dict], symbol: str, tf: str) -> List[dict]:
+    results = []
+    if len(candles) < 15:
+        return results
 
-# Equilibrium Zone Taps
-def detect_equilibrium_tap(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("Equilibrium", "1h", symbol, "Price tapped EQ zone around 50% of range")
-    ]
+    prices = [c["close"] for c in candles[-14:]]
+    rsis = compute_rsi(prices)
 
-# Divergence Detection
-def detect_divergence(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("Bullish Divergence", "15m", symbol, "Lower price, higher RSI")
-    ]
+    if len(rsis) < 2:
+        return results
 
-# High Volume Moves
-def detect_volume_spike(ohlc: dict, symbol: str) -> List[dict]:
-    return [
-        result("Volume Spike", "5m", symbol, "Massive candle with volume breakout")
-    ]
+    if prices[-1] < prices[-2] and rsis[-1] > rsis[-2]:  # Bullish div
+        results.append(result("Bullish Divergence", tf, symbol, "Lower price, higher RSI", 80))
+    elif prices[-1] > prices[-2] and rsis[-1] < rsis[-2]:  # Bearish div
+        results.append(result("Bearish Divergence", tf, symbol, "Higher price, lower RSI", 80))
+
+    return results
+
+def compute_rsi(prices: List[float], period: int = 14) -> List[float]:
+    if len(prices) < period + 1:
+        return []
+
+    deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
+    gains = [d if d > 0 else 0 for d in deltas]
+    losses = [-d if d < 0 else 0 for d in deltas]
+
+    avg_gain = statistics.mean(gains[:period])
+    avg_loss = statistics.mean(losses[:period])
+    rsis = []
+
+    for i in range(period, len(prices) - 1):
+        gain = gains[i]
+        loss = losses[i]
+        avg_gain = (avg_gain * (period - 1) + gain) / period
+        avg_loss = (avg_loss * (period - 1) + loss) / period
+        rs = avg_gain / avg_loss if avg_loss != 0 else 0
+        rsi = 100 - (100 / (1 + rs))
+        rsis.append(rsi)
+
+    return rsis
+
+# --- Break of Structure (basic swing high breakout) ---
+def detect_bos(candles: List[dict], symbol: str, tf: str) -> List[dict]:
+    results = []
+    if len(candles) < 10:
+        return results
+
+    highs = [c["high"] for c in candles[:-1]]
+    curr = candles[-1]
+
+    if curr["high"] > max(highs[-5:]):
+        results.append(result("Break of Structure", tf, symbol, "High broke above previous 5-candle highs", 76))
+
+    return results
+
+# --- Volume Spike Detection (vs avg) ---
+def detect_volume_spike(candles: List[dict], symbol: str, tf: str) -> List[dict]:
+    results = []
+    if len(candles) < 21:
+        return results
+
+    volumes = [c["volume"] for c in candles[-21:-1]]
+    avg_vol = statistics.mean(volumes)
+    curr = candles[-1]
+
+    if curr["volume"] > 1.8 * avg_vol:
+        results.append(result("Volume Spike", tf, symbol, f"Volume surged to {curr['volume']:.2f}", 77))
+
+    return results
+
+# --- All Pattern Dispatcher ---
+def detect_all_patterns(candles: List[dict], symbol: str, tf: str) -> List[dict]:
+    results = []
+    results += detect_fvg(candles, symbol, tf)
+    results += detect_divergence(candles, symbol, tf)
+    results += detect_bos(candles, symbol, tf)
+    results += detect_volume_spike(candles, symbol, tf)
+    return results
