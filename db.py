@@ -52,8 +52,17 @@ def log_alert(user_id: str, input_data: dict, output_data: dict):
         "output": output_data,
         "created_at": datetime.now(timezone.utc)
     }
-    result = alerts_coll.insert_one(entry)
-    return str(result.inserted_id)
+
+    unique_filter = {
+        "user_id": user_id,
+        "input.symbol": input_data.get("symbol"),
+        "output.result": output_data.get("result"),
+        "output.timeframe": output_data.get("timeframe"),
+        "output.source": output_data.get("source")
+    }
+
+    alerts_coll.update_one(unique_filter, {"$setOnInsert": entry}, upsert=True)
+
 
 def get_latest_news(limit=10):
     coll = client["hypewave"]["telegram_news"]
