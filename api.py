@@ -100,7 +100,11 @@ async def chat_router(
         is_setup = is_trade_setup_question(task["prompt"])
         market_context = get_market_context(input)
         pattern_signals = generate_alerts_for_symbol(symbol)
-        formatted_signals = "<br>".join([f"• {s}" for s in pattern_signals[:5]])
+        print("[DEBUG] pattern_signals:", pattern_signals)
+        formatted_signals = "<br>".join([
+            f"• {s['result']}" if isinstance(s, dict) else f"• {str(s)}"
+            for s in pattern_signals[:5]
+        ]) if pattern_signals else "No signals found."
 
         # 4. Build prompt with price + signals + sentiment
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
@@ -158,9 +162,6 @@ async def chat_router(
             "intent": "error",
             "result": f"<b>⚠️ Error:</b><br>{str(e)}"
         }
-
-
-
 
 
 
