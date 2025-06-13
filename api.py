@@ -16,9 +16,10 @@ from market_data_ws import start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
 from telegram_tracker import loop_fetch
-from fastapi import Body
+from fastapi import Body, Request
 import base64, random, os, re, threading
 from datetime import datetime, timezone
+
 
 
 load_dotenv()
@@ -35,6 +36,17 @@ app.add_middleware(
 )
 
 app.mount("/media", StaticFiles(directory="media"), name="media")
+
+
+
+@app.on_event("startup")
+def on_startup():
+    start_ws_listener()
+    start_signal_engine()
+
+@app.head("/")
+def root_head(request: Request):
+    return {"ok": True}
 
 @app.on_event("startup")
 async def start_telegram_scraper():
@@ -348,12 +360,3 @@ async def get_latest_alerts(limit: int = 5):
         return {"live_alerts": results}
     except Exception as e:
         return {"error": str(e)}
-
-
-
-
-
-@app.on_event("startup")
-def on_startup():
-    start_ws_listener()
-    start_signal_engine()
