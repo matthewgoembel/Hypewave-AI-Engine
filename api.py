@@ -154,7 +154,11 @@ async def chat_router(
         return {"intent": intent_data["intent"], "result": html_output}
 
     except Exception as e:
-        return {"error": str(e)}
+        return {
+            "intent": "error",
+            "result": f"<b>⚠️ Error:</b><br>{str(e)}"
+        }
+
 
 
 
@@ -328,7 +332,10 @@ async def analyze(prompt: str = Query(..., min_length=5)):
 @app.get("/signals/latest")
 async def get_latest_signals(limit: int = 50):
     try:
-        cursor = collection.find({"output.source": {"$ne": "auto-alert"}}).sort("created_at", DESCENDING).limit(limit)
+        cursor = alerts_coll.find(
+            {"output.source": {"$ne": "tradingview"}}  # exclude TradingView alerts
+        ).sort("created_at", -1).limit(limit)
+
         results = [
             {
                 "user_id": doc.get("user_id"),

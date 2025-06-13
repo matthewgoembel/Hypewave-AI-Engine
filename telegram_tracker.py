@@ -8,7 +8,7 @@ load_dotenv()
 
 api_id = int(os.getenv("TELEGRAM_API_ID"))
 api_hash = os.getenv("TELEGRAM_API_HASH")
-channel_usernames = ["hypewaveai", "WatcherGuru", "CryptoProUpdates", "TreeNewsFeed", "thekingsofsolana"]
+channel_usernames = ["hypewaveai", "WatcherGuru", "CryptoProUpdates", "TreeNewsFeed", "thekingsofsolana", "cryptocurrency_media"]
 collection = client["hypewave"]["telegram_news"]
 
 async def fetch_latest():
