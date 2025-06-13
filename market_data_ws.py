@@ -63,13 +63,14 @@ async def run_signal_detection():
         for symbol, timeframes in ohlc_data.items():
             for interval, candles in timeframes.items():
                 if len(candles) < 20:
-                    continue  # wait until enough candles
+                    continue
 
                 try:
                     results = detect_all_patterns(list(candles), symbol, interval)
                     for r in results:
                         print(f"⚡ Pattern Detected: {r}")
-                        log_alert("auto", {"symbol": symbol}, {
+                        clean_symbol = symbol.replace("USDT", "").replace("USD", "").upper()
+                        log_alert("auto", {"symbol": clean_symbol}, {
                             "result": f"{r['pattern']} | {r['note']} | {interval} | Price: {candles[-1]['close']}",
                             "source": r["pattern"],
                             "timeframe": interval,
@@ -79,6 +80,7 @@ async def run_signal_detection():
                     print(f"[Detection error] {symbol} {interval}: {e}")
 
         await asyncio.sleep(30)
+
 
 # --- Accessor for latest candles (optional) ---
 def get_latest_ohlc(symbol: str, interval: str):

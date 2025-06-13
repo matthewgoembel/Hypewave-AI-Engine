@@ -2,7 +2,7 @@ from fastapi import FastAPI, Query, UploadFile, File, Form, Body
 from fastapi import BackgroundTasks
 from dotenv import load_dotenv
 from schemas import ChatRequest, ChatResponse
-from db import log_signal, log_alert, collection
+from db import log_signal, collection
 from datetime import datetime, timedelta
 from pymongo import DESCENDING
 from intent_router import route_intent, format_for_model, is_trade_setup_question
