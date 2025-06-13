@@ -265,7 +265,7 @@ async def chat_with_chart(
 ):
     return await process_chart_analysis(chart, bias, timeframe, entry_intent, question)
 
-@app.post("/alerts/generate")
+@app.post("/signals/manual-scan")
 async def generate_alerts(symbols: list[str] = Body(...)):
     all_alerts = {}
     for symbol in symbols:
@@ -349,38 +349,11 @@ async def get_latest_alerts(limit: int = 5):
     except Exception as e:
         return {"error": str(e)}
 
-@app.post("/webhook/tradingview")
-async def tradingview_webhook(payload: dict = Body(...)):
-    symbol = payload.get("symbol", "UNKNOWN")
-    event = payload.get("event", "Unknown Event")
-    timeframe = payload.get("timeframe", "N/A")
-    alert_type = payload.get("type", "N/A")
-    timestamp = payload.get("timestamp")  # from TradingView JSON
 
-    # Convert timestamp (if valid)
-    try:
-        created_at = datetime.fromtimestamp(int(timestamp) / 1000, tz=timezone.utc)
-    except Exception:
-        created_at = datetime.now(timezone.utc)
-
-    from db import collection
-    entry = {
-        "user_id": "tv",
-        "input": {"symbol": symbol},
-        "output": {
-            "result": event,
-            "source": "TradingView",
-            "timeframe": timeframe
-        },
-        "created_at": created_at
-    }
-
-    await collection.insert_one(entry)
-    return {"status": "received", "data": entry}
 
 
 
 @app.on_event("startup")
 def on_startup():
-    # start_signal_engine()
-    start_ws_listener()  # ✅ This ensures Binance WS starts
+    start_ws_listener()
+    start_signal_engine()
