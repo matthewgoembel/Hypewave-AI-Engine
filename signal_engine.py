@@ -16,11 +16,13 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
             continue
 
         patterns = detect_all_patterns(candles, symbol, tf)
+
         for p in patterns:
             msg = f"${symbol} | {p['note']} | {tf} | Price: {candles[-1]['close']}"
+            clean_symbol = symbol.replace("USDT", "").replace("USD", "").upper()
 
             if msg not in alerts:
-                log_alert("auto", {"symbol": symbol}, {
+                log_alert("auto", {"symbol": clean_symbol}, {
                     "result": msg,
                     "source": p["pattern"],
                     "timeframe": tf,
