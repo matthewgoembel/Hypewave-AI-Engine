@@ -102,9 +102,9 @@ async def chat_router(
         pattern_signals = generate_alerts_for_symbol(symbol)
         print("[DEBUG] pattern_signals:", pattern_signals)
         formatted_signals = "<br>".join([
-            f"• {s['result']}" if isinstance(s, dict) else f"• {str(s)}"
+            f"• {s.get('result', str(s))}" if isinstance(s, dict) else f"• {str(s)}"
             for s in pattern_signals[:5]
-        ]) if pattern_signals else "No signals found."
+        ]) if isinstance(pattern_signals, list) else "No signals found."
 
         # 4. Build prompt with price + signals + sentiment
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
