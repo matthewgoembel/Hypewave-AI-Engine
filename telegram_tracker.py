@@ -3,6 +3,7 @@ from telethon.tl.types import Message
 from datetime import datetime, timezone
 from db import client
 import os, asyncio
+from telethon.errors import FloodWaitError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -46,6 +47,15 @@ async def fetch_latest():
         if recent_docs:
             cutoff_date = recent_docs[-1]["date"]
             collection.delete_many({"date": {"$lt": cutoff_date}})
+
+        try:
+            if message.media and message.photo:
+                path = await tg_client.download_media(message.media, file="media/")
+                if path:
+                    media_url = f"/media/{os.path.basename(path)}"
+        except FloodWaitError as e:
+            print(f"[Media download error]: A wait of {e.seconds} seconds is required (caused by {e.__class__.__name__})")
+            media_url = None
 
 async def loop_fetch():
     while True:
