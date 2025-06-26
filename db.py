@@ -78,4 +78,13 @@ def get_latest_news(limit=10):
         for doc in cursor
     ]
 
+def log_feedback(signal_id: str, feedback: str):
+    from bson import ObjectId
+    try:
+        collection.update_one(
+            {"_id": ObjectId(signal_id)},
+            {"$push": {"feedback": feedback}}
+        )
+    except Exception as e:
+        print(f"[❌ Feedback Logging Error] {e}")
 

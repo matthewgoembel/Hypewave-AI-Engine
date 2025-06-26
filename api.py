@@ -19,6 +19,7 @@ from telegram_tracker import loop_fetch
 from fastapi import Body, Request, Query
 import base64, random, os, re, threading
 from datetime import datetime, timezone, timedelta
+from bson import ObjectId
 
 
 load_dotenv()
@@ -366,6 +367,7 @@ async def get_latest_signals(
         # Format for response
         response = [
             {
+                "signal_id": str(doc.get("_id")),
                 "user_id": doc.get("user_id"),
                 "input": doc.get("input"),
                 "output": doc.get("output"),
@@ -394,5 +396,24 @@ async def get_latest_alerts(limit: int = 5):
             for doc in cursor
         ]
         return {"live_alerts": results}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/signals/feedback")
+async def record_signal_feedback(
+    signal_id: str = Body(...),
+    feedback: str = Body(...)
+):
+    try:
+        from db import client as mongo_client
+        signals_coll = mongo_client["hypewave"]["signals"]
+
+        if feedback not in ["up", "down"]:
+            return {"error": "Invalid feedback"}
+
+        from db import log_feedback
+        log_feedback(signal_id, feedback)
+        return {"status": "feedback recorded"}
+
     except Exception as e:
         return {"error": str(e)}
