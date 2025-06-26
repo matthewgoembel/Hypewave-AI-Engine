@@ -14,7 +14,7 @@ channel_usernames = ["hypewaveai", "WatcherGuru", "CryptoProUpdates", "TreeNewsF
 collection = client["hypewave"]["telegram_news"]
 
 async def fetch_latest():
-    async with TelegramClient("news_session", api_id, api_hash) as tg_client:
+    async with TelegramClient("fresh_session", api_id, api_hash) as tg_client:
         for username in channel_usernames:
             # Fetch latest message ID from this channel already saved
             last_saved = collection.find_one({"source": username}, sort=[("id", -1)])
