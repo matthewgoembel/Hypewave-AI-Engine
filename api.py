@@ -344,28 +344,40 @@ async def get_latest_signals(
 
         cutoff = datetime.utcnow() - timedelta(hours=hours)
 
-        query = {
+        base_query = {
             "output.source": "AI Confluence Engine",
             "output.confidence": {"$gte": min_confidence},
             "created_at": {"$gte": cutoff}
         }
 
-        cursor = signals_coll.find(query).sort("created_at", -1).limit(limit)
+        # First try: recent signals
+        cursor = signals_coll.find(base_query).sort("created_at", DESCENDING).limit(limit)
+        results = list(cursor)
 
-        results = [
+        # If not enough, fallback to older signals (drop cutoff filter)
+        if len(results) < limit:
+            fallback_query = {
+                "output.source": "AI Confluence Engine",
+                "output.confidence": {"$gte": min_confidence}
+            }
+            fallback_cursor = signals_coll.find(fallback_query).sort("created_at", DESCENDING).limit(limit)
+            results = list(fallback_cursor)
+
+        # Format for response
+        response = [
             {
                 "user_id": doc.get("user_id"),
                 "input": doc.get("input"),
                 "output": doc.get("output"),
                 "created_at": doc.get("created_at")
             }
-            for doc in cursor
+            for doc in results
         ]
 
-        return {"latest_signals": results}
+        return {"latest_signals": response}
     except Exception as e:
         return {"error": str(e)}
-
+    
 
 @app.get("/alerts/live")
 async def get_latest_alerts(limit: int = 5):
