@@ -21,10 +21,6 @@ import base64, random, os, re, threading
 from datetime import datetime, timezone, timedelta
 
 
-
-
-
-
 load_dotenv()
 client = OpenAI()
 
