@@ -337,7 +337,7 @@ async def analyze(prompt: str = Query(..., min_length=5)):
 async def get_latest_signals(limit: int = 50):
     try:
         cursor = alerts_coll.find(
-            {"output.source": {"$ne": "tradingview"}}  # exclude TradingView alerts
+            {"output.source": "AI Confluence Engine"}  # Only real trade setups
         ).sort("created_at", -1).limit(limit)
 
         results = [
