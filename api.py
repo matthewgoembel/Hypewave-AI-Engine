@@ -16,9 +16,12 @@ from market_data_ws import start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
 from telegram_tracker import loop_fetch
-from fastapi import Body, Request
+from fastapi import Body, Request, Query
 import base64, random, os, re, threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+
+
 
 
 
@@ -334,11 +337,24 @@ async def analyze(prompt: str = Query(..., min_length=5)):
 
 
 @app.get("/signals/latest")
-async def get_latest_signals(limit: int = 50):
+async def get_latest_signals(
+    limit: int = Query(10, le=50),
+    min_confidence: int = Query(70, ge=0, le=100),
+    hours: int = Query(2, ge=0, le=24)
+):
     try:
-        cursor = alerts_coll.find(
-            {"output.source": "AI Confluence Engine"}  # Only real trade setups
-        ).sort("created_at", -1).limit(limit)
+        from db import client as mongo_client
+        signals_coll = mongo_client["hypewave"]["signals"]
+
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+
+        query = {
+            "output.source": "AI Confluence Engine",
+            "output.confidence": {"$gte": min_confidence},
+            "created_at": {"$gte": cutoff}
+        }
+
+        cursor = signals_coll.find(query).sort("created_at", -1).limit(limit)
 
         results = [
             {
@@ -349,6 +365,7 @@ async def get_latest_signals(limit: int = 50):
             }
             for doc in cursor
         ]
+
         return {"latest_signals": results}
     except Exception as e:
         return {"error": str(e)}
