@@ -11,4 +11,5 @@ __pycache__/
 *.session
 *.session-journal
 *.session.lock
+sessions/
 
