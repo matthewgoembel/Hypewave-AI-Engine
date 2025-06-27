@@ -21,13 +21,23 @@ channel_usernames = [
 ]
 collection = client["hypewave"]["telegram_news"]
 
+def get_display_name(entity):
+    if hasattr(entity, "title") and entity.title:
+        return entity.title
+    if hasattr(entity, "first_name") and entity.first_name:
+        if hasattr(entity, "last_name") and entity.last_name:
+            return f"{entity.first_name} {entity.last_name}"
+        return entity.first_name
+    if hasattr(entity, "username") and entity.username:
+        return entity.username
+    return "Unnamed"
+
 async def fetch_latest():
     async with TelegramClient("sessions/fresh_session", api_id, api_hash) as tg_client:
         for username in channel_usernames:
             # 🟢 Fetch the full channel entity once
             entity = await tg_client.get_entity(username)
-
-            display_name = entity.title if hasattr(entity, "title") else username
+            display_name = get_display_name(entity)
             canonical_username = entity.username if hasattr(entity, "username") else username
 
             last_saved = collection.find_one({"source": canonical_username}, sort=[("id", -1)])
@@ -82,6 +92,8 @@ async def loop_fetch():
     while True:
         await fetch_latest()
         await asyncio.sleep(10)
+
+        
 
 if __name__ == "__main__":
     asyncio.run(loop_fetch())
