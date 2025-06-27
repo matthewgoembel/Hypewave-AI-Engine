@@ -71,9 +71,10 @@ def get_latest_news(limit=10):
         {
             "text": doc.get("text"),
             "link": doc.get("link"),
-            "timestamp": doc.get("date"),
-            "source": doc.get("source"),         # ✅ add this line
-            "media_url": doc.get("media_url")    # ✅ optional for images
+            "timestamp": doc.get("date").isoformat() if doc.get("date") else None,
+            "source": doc.get("source"),
+            "display_name": doc.get("display_name"),   # ✅ this line fixes it
+            "media_url": doc.get("media_url")
         }
         for doc in cursor
     ]
