@@ -16,14 +16,21 @@ channel_usernames = [
     "CryptoProUpdates",
     "TreeNewsFeed",
     "thekingsofsolana",
-    "cryptocurrency_media"
+    "cryptocurrency_media",
+    "rektcapitalinsider"
 ]
 collection = client["hypewave"]["telegram_news"]
 
 async def fetch_latest():
     async with TelegramClient("sessions/fresh_session", api_id, api_hash) as tg_client:
         for username in channel_usernames:
-            last_saved = collection.find_one({"source": username}, sort=[("id", -1)])
+            # 🟢 Fetch the full channel entity once
+            entity = await tg_client.get_entity(username)
+
+            display_name = entity.title if hasattr(entity, "title") else username
+            canonical_username = entity.username if hasattr(entity, "username") else username
+
+            last_saved = collection.find_one({"source": canonical_username}, sort=[("id", -1)])
             last_id = last_saved["id"] if last_saved else 0
 
             try:
@@ -40,17 +47,18 @@ async def fetch_latest():
                         except FloodWaitError as e:
                             print(f"[Media download error]: Wait {e.seconds} seconds (from {username})")
 
-                    if message.text and not collection.find_one({"id": message.id, "source": username}):
+                    if message.text and not collection.find_one({"id": message.id, "source": canonical_username}):
                         doc = {
                             "id": message.id,
                             "text": message.text,
                             "date": message.date.replace(tzinfo=timezone.utc),
-                            "link": f"https://t.me/{username}/{message.id}",
-                            "source": username,
+                            "link": f"https://t.me/{canonical_username}/{message.id}",
+                            "source": canonical_username,
+                            "display_name": display_name,
                             "media_url": media_url
                         }
                         collection.insert_one(doc)
-                        print(f"✅ [{username}] {doc['text'][:60]}...")
+                        print(f"✅ [{canonical_username}] {doc['text'][:60]}...")
 
             except Exception as e:
                 print(f"[{username}] ❌ Failed to fetch messages: {e}")
