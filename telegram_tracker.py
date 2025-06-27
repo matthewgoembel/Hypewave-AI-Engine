@@ -21,7 +21,7 @@ channel_usernames = [
 collection = client["hypewave"]["telegram_news"]
 
 async def fetch_latest():
-    async with TelegramClient("fresh_session", api_id, api_hash) as tg_client:
+    async with TelegramClient("sessions/fresh_session", api_id, api_hash) as tg_client:
         for username in channel_usernames:
             last_saved = collection.find_one({"source": username}, sort=[("id", -1)])
             last_id = last_saved["id"] if last_saved else 0
