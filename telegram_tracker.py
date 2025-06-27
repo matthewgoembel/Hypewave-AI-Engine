@@ -80,13 +80,22 @@ async def fetch_latest():
         deleted = collection.delete_many({"date": {"$lt": start_of_day}})
         print(f"[Cleanup] Deleted {deleted.deleted_count} old records.")
 
-        # Clean old media files
         from pathlib import Path
+        import datetime
+
         media_folder = Path("/mnt/data")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        deleted_count = 0
         for file in media_folder.iterdir():
             if file.is_file():
-                file.unlink()
-        print("[Cleanup] Deleted old media files.")
+                mtime = datetime.datetime.fromtimestamp(file.stat().st_mtime, tz=datetime.timezone.utc)
+                if mtime < start_of_day:
+                    file.unlink()
+                    deleted_count += 1
+
+        print(f"[Cleanup] Deleted {deleted_count} old media files.")
 
 async def loop_fetch():
     while True:
