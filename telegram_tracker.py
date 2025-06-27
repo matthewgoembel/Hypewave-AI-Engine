@@ -27,7 +27,7 @@ async def fetch_latest():
             last_id = last_saved["id"] if last_saved else 0
 
             try:
-                async for message in tg_client.iter_messages(username):
+                async for message in tg_client.iter_messages(username, limit=10):
                     if message.id <= last_id:
                         break
 
