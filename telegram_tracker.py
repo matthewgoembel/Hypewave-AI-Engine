@@ -41,7 +41,7 @@ async def fetch_latest():
                     media_url = None
                     if message.media and message.photo:
                         try:
-                            path = await tg_client.download_media(message.media, file="media/")
+                            path = await tg_client.download_media(message.media, file="/mnt/data/")
                             if path:
                                 media_url = f"/media/{os.path.basename(path)}"
                         except FloodWaitError as e:
@@ -64,10 +64,19 @@ async def fetch_latest():
                 print(f"[{username}] ❌ Failed to fetch messages: {e}")
 
         # Clean old messages
-        recent_docs = list(collection.find().sort("date", -1).limit(100))
-        if recent_docs:
-            cutoff_date = recent_docs[-1]["date"]
-            collection.delete_many({"date": {"$lt": cutoff_date}})
+        now = datetime.now(timezone.utc).replace(tzinfo=timezone.utc)
+        start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        deleted = collection.delete_many({"date": {"$lt": start_of_day}})
+        print(f"[Cleanup] Deleted {deleted.deleted_count} old records.")
+
+        # Clean old media files
+        from pathlib import Path
+        media_folder = Path("/mnt/data")
+        for file in media_folder.iterdir():
+            if file.is_file():
+                file.unlink()
+        print("[Cleanup] Deleted old media files.")
 
 async def loop_fetch():
     while True:
