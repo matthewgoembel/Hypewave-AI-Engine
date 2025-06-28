@@ -81,7 +81,6 @@ async def fetch_latest():
         print(f"[Cleanup] Deleted {deleted.deleted_count} old records.")
 
         from pathlib import Path
-        from datetime import datetime, timezone
 
         media_folder = Path("/mnt/data")
         now = datetime.now(timezone.utc)
@@ -96,6 +95,7 @@ async def fetch_latest():
                     deleted_count += 1
 
         print(f"[Cleanup] Deleted {deleted_count} old media files.")
+
 
 
 async def loop_fetch():
