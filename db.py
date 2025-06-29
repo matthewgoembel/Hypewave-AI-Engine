@@ -64,19 +64,36 @@ def log_alert(user_id: str, input_data: dict, output_data: dict):
     alerts_coll.update_one(unique_filter, {"$setOnInsert": entry}, upsert=True)
 
 
-def get_latest_news(limit=10):
-    coll = client["hypewave"]["telegram_news"]
-    cursor = coll.find().sort("date", -1).limit(limit)
+def get_latest_news(limit=20):
+    """
+    Fetches the latest news from both Telegram and Truth Social.
+    Returns a combined, sorted list.
+    """
+    # Fetch Telegram posts
+    telegram_coll = client["hypewave"]["telegram_news"]
+    telegram_cursor = telegram_coll.find().sort("date", -1).limit(limit)
+    telegram_docs = list(telegram_cursor)
+
+    # Fetch Truth Social posts
+    truth_coll = client["hypewave"]["truthsocial_news"]
+    truth_cursor = truth_coll.find().sort("date", -1).limit(limit)
+    truth_docs = list(truth_cursor)
+
+    # Combine and sort by date
+    combined = telegram_docs + truth_docs
+    combined.sort(key=lambda x: x["date"], reverse=True)
+
+    # Build response list
     return [
         {
             "text": doc.get("text"),
             "link": doc.get("link"),
             "timestamp": doc.get("date").isoformat() if doc.get("date") else None,
             "source": doc.get("source"),
-            "display_name": doc.get("display_name"),   # ✅ this line fixes it
+            "display_name": doc.get("display_name"),
             "media_url": doc.get("media_url")
         }
-        for doc in cursor
+        for doc in combined[:limit]
     ]
 
 def log_feedback(signal_id: str, feedback: str):
