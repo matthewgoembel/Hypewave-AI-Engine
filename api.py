@@ -103,30 +103,68 @@ async def chat_router(
         is_setup = is_trade_setup_question(task["prompt"])
         market_context = get_market_context(input)
         pattern_signals = generate_alerts_for_symbol(symbol)
-        formatted_signals = "<br>".join([
-            f"• {s['result']}" if isinstance(s, dict) else f"• {str(s)}"
-            for s in pattern_signals[:5]
-        ]) if pattern_signals else "No signals found."
+        from pattern_detection import group_patterns_by_bias
 
-        # 4. Build prompt with price + signals + sentiment
+        # Fallback if no signals
+        if pattern_signals:
+            formatted_signals = "<br>".join([
+                f"• {s['note']} (Confidence: {s['confidence']}%, Bias: {s['bias']})"
+                for s in pattern_signals[:5]
+            ])
+        else:
+            formatted_signals = (
+                "No clear technical patterns detected in the latest candles. "
+                "Please consider price action and trend context."
+            )
+
+        # Summarize bias counts
+        bias_summary = group_patterns_by_bias(pattern_signals)
+        bullish_count = len(bias_summary["bullish"])
+        bearish_count = len(bias_summary["bearish"])
+        neutral_count = len(bias_summary["neutral"])
+
+        pattern_summary = (
+            f"<b>Pattern Bias Summary:</b><br>"
+            f"• Bullish Patterns: {bullish_count}<br>"
+            f"• Bearish Patterns: {bearish_count}<br>"
+            f"• Neutral Patterns: {neutral_count}<br>"
+        )
+
+        # Build prompt
         if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
             system_prompt = (
-                f"You are Hypewave AI, a trading expert and partner of the user.\n"
-                f"You are striving for a perfect winrate — something only a machine could pull off.\n"
+                f"You are Hypewave AI, a professional trader with an exceptional record.\n"
                 f"NEVER refer to yourself as an AI.\n"
-                f"You are a trader. Be confident, tactical, and specific. Always give an answer even if unsure.\n"
-                f"Offer bullish and bearish scenarios.\n\n"
+                f"You always produce confident, actionable analysis with no disclaimers.\n"
+                f"Use the live price data, chart signals, and sentiment context below.\n"
+                f"Your goal is to:\n"
+                f"- Analyze the data as a human trader.\n"
+                f"- Provide short and specific bullish and bearish scenarios.\n"
+                f"- But ONLY have ONE definitive recommendation: Bullish or Bearish, plus a confidence rating (1-100%) so theres is always a Bias.\n"
+                f"- Please Include a trade setup as well with entry take profit, and stop loss IF possible and in answers the questions asked.\n\n"
+                f"Always format your response like this:\n\n"
+                f"Thesis: pecific, non-ambiguous, confident, smart, simple, easy to read \n"
+                f"<concise overview>\n\n"
+                f"Most confident Bias Scenario(bearish/bullish):\n"
+                f"<key points>\n\n"
+                f"Recommendation: specific, non-ambiguous, confident, smart, simple\n"
+                f"Confidence Rating: (1–100%)\n"
+                f"Suggested Trade setup or future setup: (if applicable)\n"
+                f"Less confident Bias Scenario/if goes wrong(bearish/bullish-opposite of the previous):\n"
+                f"<key points>\n\n"
                 f"{price_summary}\n"
                 f"<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}\n\n"
+                f"{pattern_summary}\n"
                 f"<b>Sentiment & Macro Context:</b><br>{market_context}\n\n"
-                f"🧠 Format with bullet points, headers, bolded terms, and NO dense paragraphs."
+                f"🧠 Use bold headers, bullet points, and no dense paragraphs."
             )
         else:
             system_prompt = (
                 task["system_prompt"]
                 + f"\n\n{price_summary}"
                 + f"\n<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}"
-                + f"\n\n<b>Market Context:</b><br>{market_context}"
+                + f"\n\n{pattern_summary}"
+                + f"\n<b>Market Context:</b><br>{market_context}"
             )
 
         # 5. Build and send GPT messages
@@ -148,7 +186,7 @@ async def chat_router(
             messages.append({"role": "user", "content": task["prompt"]})
 
         response = client.chat.completions.create(
-            model="gpt-4.1" if image else "gpt-4",
+            model="gpt-4o",
             messages=messages,
             max_tokens=1200
         )
