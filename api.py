@@ -2,7 +2,7 @@ from fastapi import FastAPI, Query, UploadFile, File, Form, Body
 from fastapi import BackgroundTasks
 from dotenv import load_dotenv
 from schemas import ChatRequest, ChatResponse
-from db import log_signal, collection
+from db import log_signal, collection, log_chat
 from datetime import datetime, timedelta
 from pymongo import DESCENDING
 from intent_router import route_intent, format_for_model, is_trade_setup_question
@@ -192,9 +192,11 @@ async def chat_router(
         )
 
         raw_output = response.choices[0].message.content.strip()
-        html_output = raw_output.replace("**", "<b>", 1).replace("**", "</b>", 1).replace("\n", "<br>")
+        # html_output = raw_output.replace("**", "<b>", 1).replace("**", "</b>", 1).replace("\n", "<br>")
+        html_output = markdown(raw_output, extensions=['nl2br'])  # output fixed
 
-        log_signal("demo", {"input": input}, {"result": html_output, "source": "chat.analysis"})
+        log_chat("demo", {"input": input}, {"result": html_output, "source": "chat.analysis"})
+
         return {"intent": intent_data["intent"], "result": html_output}
 
     except Exception as e:

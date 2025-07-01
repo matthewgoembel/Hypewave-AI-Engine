@@ -22,6 +22,7 @@ except Exception as e:
 db = client["hypewave"]
 collection = db["signals"]
 alerts_coll = db["alerts"]
+chats_coll = db["chats"]  # ✅ NEW collection for chats
 
 # Logging functions
 def log_signal(user_id: str, input_data: dict, output_data: dict):
@@ -32,17 +33,15 @@ def log_signal(user_id: str, input_data: dict, output_data: dict):
         "created_at": datetime.now(timezone.utc)
     }
 
-    # Remove created_at from filter to prevent duplication
     unique_filter = {
         "user_id": user_id,
         "input.symbol": input_data.get("symbol"),
         "output.result": output_data.get("result"),
         "output.timeframe": output_data.get("timeframe"),
-        "output.source": output_data.get("source")  # ✅ include source if relevant
+        "output.source": output_data.get("source")
     }
 
     collection.update_one(unique_filter, {"$set": entry}, upsert=True)
-
 
 
 def log_alert(user_id: str, input_data: dict, output_data: dict):
@@ -62,6 +61,20 @@ def log_alert(user_id: str, input_data: dict, output_data: dict):
     }
 
     alerts_coll.update_one(unique_filter, {"$setOnInsert": entry}, upsert=True)
+
+
+def log_chat(user_id: str, input_data: dict, output_data: dict):
+    """
+    Logs plain chat interactions into their own collection.
+    No deduplication filter—every chat is unique.
+    """
+    entry = {
+        "user_id": user_id,
+        "input": input_data,
+        "output": output_data,
+        "created_at": datetime.now(timezone.utc)
+    }
+    chats_coll.insert_one(entry)
 
 
 def get_latest_news(limit=20):
@@ -96,6 +109,7 @@ def get_latest_news(limit=20):
         for doc in combined[:limit]
     ]
 
+
 def log_feedback(signal_id: str, feedback: str):
     from bson import ObjectId
     try:
@@ -105,4 +119,3 @@ def log_feedback(signal_id: str, feedback: str):
         )
     except Exception as e:
         print(f"[❌ Feedback Logging Error] {e}")
-
