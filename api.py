@@ -192,12 +192,12 @@ async def chat_router(
         )
 
         raw_output = response.choices[0].message.content.strip()
-        # html_output = raw_output.replace("**", "<b>", 1).replace("**", "</b>", 1).replace("\n", "<br>")
-        html_output = markdown(raw_output, extensions=['nl2br'])  # output fixed
 
-        log_chat("demo", {"input": input}, {"result": html_output, "source": "chat.analysis"})
+        log_chat("demo", {"input": input}, {"result": raw_output, "source": "chat.analysis"})
 
-        return {"intent": intent_data["intent"], "result": html_output}
+        return {"intent": intent_data["intent"], "result": raw_output}
+                    
+
 
     except Exception as e:
         return {
@@ -351,26 +351,6 @@ async def fetch_news(limit: int = 10):
     except Exception as e:
         return {"error": str(e)}
 
-
-@app.get("/analyze")
-async def analyze(prompt: str = Query(..., min_length=5)):
-    try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You're an AI that analyzes crypto sentiment based on social media hype."},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        result = response.choices[0].message.content.strip()
-        log_signal(
-            user_id="demo",
-            input_data={"prompt": prompt},
-            output_data={"result": result, "source": "text-analyze"}
-        )
-        return {"result": result}
-    except Exception as e:
-        return {"error": str(e)}
 
 
 @app.get("/signals/latest")
