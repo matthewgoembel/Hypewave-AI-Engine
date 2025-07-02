@@ -1,2 +1,2 @@
 # Hypewave-AI
-Your first real AI trading partner 
+The engine and brain behind Hypewave.
