@@ -1,7 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from fastapi import APIRouter
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -11,34 +11,50 @@ def get_forex_calendar():
     res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
     soup = BeautifulSoup(res.text, "html.parser")
 
-
     rows = soup.select("tr.calendar__row")
     events = []
-    today_str = datetime.utcnow().strftime("%b %d")  # E.g., "Jul 02"
+
+    # Format like: "Thu Jul 3"
+    today_str = datetime.now(timezone.utc).strftime("%a %b %-d").replace(" 0", " ")
+
+    current_date = None
 
     for row in rows:
-        # Some rows are empty separators
-        if not row.select_one("td.time"):
+        time_el = row.select_one("td.calendar__time")
+        if not time_el or not time_el.text.strip():
             continue
 
-        # Extract cells
-        date_el = row.select_one("td.date")
-        time_el = row.select_one("td.time")
-        currency = row.select_one("td.currency")
-        impact = row.select_one("td.impact span")
-        detail = row.select_one("td.event")
-        actual = row.select_one("td.actual")
-        forecast = row.select_one("td.forecast")
-        previous = row.select_one("td.previous")
+        # Date extraction
+        date_td = row.select_one("td.calendar__cell--date span.date")
+        if date_td:
+            parts = [s.strip() for s in date_td.strings if s.strip()]
+            date_text = " ".join(parts)
+        else:
+            date_text = None
 
-        date_text = date_el.text.strip() if date_el else today_str
-        time_text = time_el.text.strip()
+        if date_text:
+            current_date = date_text
+
+        if current_date != today_str:
+            continue
+
+        currency = row.select_one("td.calendar__currency")
+        impact_span = row.select_one("td.calendar__impact span")
+        impact_level = (
+            impact_span["class"][1].replace("icon--impact-", "").capitalize()
+            if impact_span and len(impact_span["class"]) > 1
+            else ""
+        )
+        detail = row.select_one("td.calendar__event")
+        actual = row.select_one("td.calendar__actual")
+        forecast = row.select_one("td.calendar__forecast")
+        previous = row.select_one("td.calendar__previous")
 
         events.append({
-            "date": date_text,
-            "time": time_text,
+            "date": current_date,
+            "time": time_el.text.strip(),
             "currency": currency.text.strip() if currency else "",
-            "impact": impact["title"] if impact and impact.has_attr("title") else "",
+            "impact": impact_level,
             "detail": detail.text.strip() if detail else "",
             "actual": actual.text.strip() if actual else "",
             "forecast": forecast.text.strip() if forecast else "",
