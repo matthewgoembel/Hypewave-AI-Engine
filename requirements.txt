@@ -27,3 +27,4 @@ python-multipart
 telethon
 certifi
 python-dotenv
+beautifulsoup4

@@ -11,6 +11,7 @@ def get_forex_calendar():
     res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
     soup = BeautifulSoup(res.text, "html.parser")
 
+
     rows = soup.select("tr.calendar__row")
     events = []
     today_str = datetime.utcnow().strftime("%b %d")  # E.g., "Jul 02"
