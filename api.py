@@ -20,12 +20,14 @@ from fastapi import Body, Request, Query
 import base64, random, os, re, threading
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
-
+from forex_calender import router as forex_router
 
 load_dotenv()
 client = OpenAI()
 
 app = FastAPI()
+
+app.include_router(forex_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -37,12 +39,11 @@ app.add_middleware(
 
 app.mount("/media", StaticFiles(directory="/mnt/data"), name="media")
 
-
-
 @app.on_event("startup")
 def on_startup():
     start_ws_listener()
     start_signal_engine()
+
 
 @app.head("/")
 def root_head(request: Request):
