@@ -14,7 +14,6 @@ def get_forex_calendar():
     rows = soup.select("tr.calendar__row")
     events = []
 
-    # Today in the site format, e.g., "Wed Jul 2"
     today_str = datetime.now(timezone.utc).strftime("%a %b %-d").replace(" 0", " ")
     print("Today string:", today_str)
 
@@ -23,10 +22,10 @@ def get_forex_calendar():
     for row in rows:
         print("======== NEW ROW ==========")
 
+        # Try extracting the time
         time_el = row.select_one("td.calendar__time")
-        if not time_el or not time_el.text.strip():
-            print("Skipping row with no time.")
-            continue
+        time_text = time_el.text.strip() if time_el else ""
+        print("Time text:", repr(time_text))
 
         # Extract and normalize date
         date_td = row.select_one("td.calendar__cell--date span.date")
@@ -42,17 +41,19 @@ def get_forex_calendar():
             current_date = date_text
 
         print("Final current_date in row:", current_date)
-        print("Time:", time_el.text.strip())
 
-        # Log and skip if date doesn't match
+        if not current_date:
+            print("Skipping row because no current_date.")
+            continue
+
+        # Log why skipping
         if current_date != today_str:
             print(f"Skipping because '{current_date}' != '{today_str}'")
             continue
 
-        # Extract other fields
+        # Extract the rest
         currency = row.select_one("td.calendar__currency")
         impact_span = row.select_one("td.calendar__impact span")
-        # Handle impact from class name
         impact_level = (
             impact_span["class"][1].replace("icon--impact-", "").capitalize()
             if impact_span and len(impact_span["class"]) > 1
@@ -65,7 +66,7 @@ def get_forex_calendar():
 
         event = {
             "date": current_date,
-            "time": time_el.text.strip(),
+            "time": time_text,
             "currency": currency.text.strip() if currency else "",
             "impact": impact_level,
             "detail": detail.text.strip() if detail else "",
