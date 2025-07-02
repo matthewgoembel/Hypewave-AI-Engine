@@ -14,8 +14,8 @@ def get_forex_calendar():
     rows = soup.select("tr.calendar__row")
     events = []
 
-    # Format like: "Thu Jul 3"
     today_str = datetime.now(timezone.utc).strftime("%a %b %-d").replace(" 0", " ")
+    print("Today string:", today_str)
 
     current_date = None
 
@@ -24,7 +24,6 @@ def get_forex_calendar():
         if not time_el or not time_el.text.strip():
             continue
 
-        # Date extraction
         date_td = row.select_one("td.calendar__cell--date span.date")
         if date_td:
             parts = [s.strip() for s in date_td.strings if s.strip()]
@@ -34,6 +33,8 @@ def get_forex_calendar():
 
         if date_text:
             current_date = date_text
+
+        print("Row current_date:", current_date)
 
         if current_date != today_str:
             continue
@@ -50,7 +51,7 @@ def get_forex_calendar():
         forecast = row.select_one("td.calendar__forecast")
         previous = row.select_one("td.calendar__previous")
 
-        events.append({
+        event = {
             "date": current_date,
             "time": time_el.text.strip(),
             "currency": currency.text.strip() if currency else "",
@@ -59,6 +60,9 @@ def get_forex_calendar():
             "actual": actual.text.strip() if actual else "",
             "forecast": forecast.text.strip() if forecast else "",
             "previous": previous.text.strip() if previous else "",
-        })
+        }
+        print("Event added:", event)
+        events.append(event)
 
+    print("Total events:", len(events))
     return {"events": events}
