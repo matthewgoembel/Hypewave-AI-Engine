@@ -48,7 +48,7 @@ RUN playwright install chromium
 # Tell Playwright to look for browsers in the system location
 ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/pw-browsers
 
-RUN playwright install chromium --with-deps
+RUN PLAYWRIGHT_BROWSERS_PATH=0 playwright install
 
 EXPOSE 10000
 
