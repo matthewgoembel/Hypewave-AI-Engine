@@ -1,7 +1,6 @@
-# Use a lightweight Python base
 FROM python:3.11-slim
 
-# Install Chromium dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
@@ -36,21 +35,21 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Set work directory
 WORKDIR /app
 
-# Copy your code into the container
 COPY . .
 
-# Install pip dependencies
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 # Install Playwright Chromium
 RUN playwright install chromium
 
-# Expose the port uvicorn will run on (optional but recommended)
+# Tell Playwright to look for browsers in the system location
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/local/share/pw-browsers
+
+RUN playwright install chromium --with-deps
+
 EXPOSE 10000
 
-# Command to run your FastAPI app
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "10000"]
