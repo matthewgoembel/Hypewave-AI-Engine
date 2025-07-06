@@ -5,7 +5,7 @@ const path = require("path");
 async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
   const url = `https://www.tradingview.com/chart/?symbol=BINANCE:${symbol}&interval=${tf}`;
 
-  const executablePath = path.resolve(
+  const chromePath = path.resolve(
     __dirname,
     ".local-chromium",
     "chrome",
@@ -16,8 +16,8 @@ async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
 
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    executablePath
+    executablePath: chromePath,
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
   const page = await browser.newPage();
