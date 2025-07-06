@@ -27,7 +27,13 @@ client = OpenAI()
 async def lifespan(app):
     print("[Telegram Tracker] Starting background fetch loop...")
     fetch_task = asyncio.create_task(loop_fetch())
+
+    # 🔹 Start your startup tasks here:
+    start_ws_listener()
+    start_signal_engine()
+
     yield
+
     print("[Telegram Tracker] Shutting down background fetch loop...")
     fetch_task.cancel()
     try:
@@ -50,11 +56,6 @@ app.add_middleware(
 )
 
 app.mount("/media", StaticFiles(directory="/mnt/data"), name="media")
-
-@app.on_event("startup")
-def on_startup():
-    start_ws_listener()
-    start_signal_engine()
 
 @app.head("/")
 def root_head(request: Request):
