@@ -8,8 +8,7 @@ __pycache__/
 *.sqlite3
 .idea/
 .vscode/
-*.session
 *.session-journal
 *.session.lock
-sessions/
+
 
