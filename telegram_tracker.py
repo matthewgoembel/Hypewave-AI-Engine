@@ -99,13 +99,9 @@ async def fetch_latest():
 
 
 async def loop_fetch():
-    try:
-        while True:
-            await fetch_latest()
-            await asyncio.sleep(10)
-    except asyncio.CancelledError:
-        print("[Telegram Tracker] Loop cancelled.")
-
+    while True:
+        await fetch_latest()
+        await asyncio.sleep(10)
 
         
 

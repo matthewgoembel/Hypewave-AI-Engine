@@ -76,8 +76,7 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
 
 
 def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_context, direction) -> dict:
-    import db 
-    trades_review = db.trades_review
+    from db import trades_review  # <-- import the collection here
 
     import re
 
@@ -204,7 +203,7 @@ def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_cont
             "raw_output": raw,
             "parsed_trade": trade,
             "accepted": trade["confidence"] and trade["confidence"] >= 60,
-            "timestamp": datetime.utcnow()
+            "timestamp": datetime.now(timezone.utc)
         })
 
         if trade["confidence"] and trade["confidence"] >= 60:
@@ -212,6 +211,10 @@ def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_cont
         else:
             print("[⚠️ Discarded Low-Confidence Trade]", trade)
             return None
+
+    except Exception as e:
+        print(f"[❌ AI Evaluation Error] {e}")
+        return None
 
     except Exception as e:
         print(f"[❌ AI Evaluation Error] {e}")
