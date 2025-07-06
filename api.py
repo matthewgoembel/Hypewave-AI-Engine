@@ -61,25 +61,6 @@ def root_head(request: Request):
     return {"ok": True}
 
 
-# @app.on_event("startup")
-# async def start_telegram_scraper():
-#     asyncio.create_task(loop_fetch())
-
-@asynccontextmanager
-async def lifespan(app):
-    print("[Telegram Tracker] Starting background fetch loop...")
-    fetch_task = asyncio.create_task(loop_fetch())
-    yield
-    print("[Telegram Tracker] Shutting down background fetch loop...")
-    fetch_task.cancel()
-    try:
-        await fetch_task
-    except asyncio.CancelledError:
-        print("[Telegram Tracker] Fetch loop cancelled cleanly.")
-
-app = FastAPI(lifespan=lifespan)
-
-
 @app.get("/")
 def root():
     return {"message": "Hypewave AI is live 🚀"}
