@@ -76,7 +76,8 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
 
 
 def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_context, direction) -> dict:
-    from db import trades_review  # <-- import the collection here
+    import db 
+    trades_review = db.trades_review
 
     import re
 
