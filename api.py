@@ -21,11 +21,11 @@ import base64, random, os, re, threading
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 from forex_calender import router as forex_router
+from contextlib import asynccontextmanager
+
 
 load_dotenv()
 client = OpenAI()
-
-app = FastAPI()
 
 app.include_router(forex_router)
 
@@ -49,9 +49,23 @@ def on_startup():
 def root_head(request: Request):
     return {"ok": True}
 
-@app.on_event("startup")
-async def start_telegram_scraper():
-    asyncio.create_task(loop_fetch())
+# @app.on_event("startup")
+# async def start_telegram_scraper():
+#     asyncio.create_task(loop_fetch())
+
+@asynccontextmanager
+async def lifespan(app):
+    print("[Telegram Tracker] Starting background fetch loop...")
+    fetch_task = asyncio.create_task(loop_fetch())
+    yield
+    print("[Telegram Tracker] Shutting down background fetch loop...")
+    fetch_task.cancel()
+    try:
+        await fetch_task
+    except asyncio.CancelledError:
+        print("[Telegram Tracker] Fetch loop cancelled cleanly.")
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/")
