@@ -15,7 +15,7 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
 
     for tf in TIMEFRAMES:
         candles = get_latest_ohlc(f"{symbol}USDT", tf)
-        if not candles or len(candles) < 20:
+        if not candles or len(candles) < 10:
             continue
 
         patterns = detect_all_patterns(candles, symbol, tf)
@@ -23,43 +23,63 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
             continue
 
         grouped = group_patterns_by_bias(patterns)
-        direction = None
-        if len(grouped["bullish"]) >= 3:
+        # Instead of requiring 3 same-bias, allow ANY confluences
+        total_signals = sum(len(v) for v in grouped.values())
+
+        if total_signals == 0:
+            continue
+
+        # Determine the most likely direction (majority vote)
+        bullish_count = len(grouped["bullish"])
+        bearish_count = len(grouped["bearish"])
+
+        if bullish_count > bearish_count:
             direction = "long"
-        elif len(grouped["bearish"]) >= 3:
+        elif bearish_count > bullish_count:
             direction = "short"
+        else:
+            # If tie or all neutral, skip
+            print(f"[ℹ️] No clear bias for {symbol} {tf}, skipping.")
+            continue
 
         market_context = build_market_context(symbol, tf, candles, patterns)
 
-        if direction:
-            print(f"[🔥 CONFLUENCE] {symbol} {tf} → {direction.upper()} with {len(grouped[direction if direction == 'long' else 'bearish'])} patterns")
+        print(f"[🧠 Evaluating] {symbol} {tf} → {direction.upper()} ({total_signals} signals)")
 
-            trade = evaluate_trade_opportunity(
-                symbol=symbol,
-                timeframe=tf,
-                candles=candles,
-                patterns=patterns,
-                market_context=market_context,
-                direction=direction
-            )
+        trade = evaluate_trade_opportunity(
+            symbol=symbol,
+            timeframe=tf,
+            candles=candles,
+            patterns=patterns,
+            market_context=market_context,
+            direction=direction
+        )
 
-            if trade and trade.get("confidence", 0) >= 70:
-                msg = f"${symbol} | {trade['trade']} | {tf} | Entry: {trade['entry']} | Conf: {trade['confidence']}"
-                log_signal("partner-ai", {"symbol": symbol}, {
-                    "result": msg,
-                    "source": "AI Confluence Engine",
-                    "timeframe": tf,
-                    "confidence": trade["confidence"],
-                    "entry": trade["entry"],
-                    "sl": trade["sl"],
-                    "tp": trade["tp"],
-                    "thesis": trade["thesis"]
-                })
-                alerts.add(msg)
+        if trade:
+            print("[✅ TRADE]", trade)
+            msg = f"${symbol} | {trade['trade']} | {tf} | Entry: {trade['entry']} | Conf: {trade['confidence']}"
+            log_signal("partner-ai", {"symbol": symbol}, {
+                "result": msg,
+                "source": "AI Confluence Engine",
+                "timeframe": tf,
+                "confidence": trade["confidence"],
+                "entry": trade["entry"],
+                "sl": trade["sl"],
+                "tp": trade["tp"],
+                "thesis": trade["thesis"]
+            })
+            alerts.add(msg)
+        else:
+            print("[❌] No confident trade returned.")
 
     return list(alerts)
 
+
 def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_context, direction) -> dict:
+    from db import trades_review  # <-- import the collection here
+
+    import re
+
     chart_path = capture_chart(symbol, timeframe)
     if not chart_path:
         print(f"[⚠️] Chart not available, skipping AI evaluation for {symbol} {timeframe}")
@@ -85,24 +105,30 @@ def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_cont
         )
 
         prompt = f"""
-            You are Hypewave AI, a professional trading strategist.
+        You are Hypewave AI, a professional trader working alongside the user.
 
-            You **only respond** if the trade setup is highly confident. If the setup is weak or unclear, say **nothing at all**.
+        Evaluate this potential trade setup like a skilled discretionary trader. 
+        Carefully analyze the chart image, the pattern signals, and the market context. 
+        You should think critically about the risk and probability of success.
 
-            🧠 Confluence signals for {symbol} on {timeframe} timeframe:
-            {confluences}
+        Only provide a trade idea if you sincerely believe there is at least a 60% probability 
+        that the setup will play out as expected over the next few candles. 
+        If no such opportunity exists, respond with nothing at all.
 
-            📊 Market Context:
-            {context_summary}
+        🧠 Confluence signals for {symbol} on {timeframe} timeframe:
+        {confluences}
 
-            🎯 Output ONLY if this is a highly confident {direction.upper()} setup. Format:
+        📊 Market Context:
+        {context_summary}
 
-            **Trade:** LONG or SHORT  
-            **Confidence:** ___  
-            **Entry:** ___  
-            **Stop Loss:** ___  
-            **Take Profit:** ___  
-            **Thesis:** [why this setup is excellent]
+        🎯 When you are confident, respond EXACTLY in this format (no extra commentary):
+
+        **Trade:** LONG or SHORT  
+        **Confidence:** [number 0–100]  
+        **Entry:** [price level]  
+        **Stop Loss:** [price level]  
+        **Take Profit:** [price level]  
+        **Thesis:** [1–2 sentences explaining why this setup is strong]
         """.strip()
 
         response = client.chat.completions.create(
@@ -124,10 +150,22 @@ def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_cont
         )
 
         raw = response.choices[0].message.content.strip()
+        print("[🔍 GPT Raw Output]", raw)
+
         if not raw or "confidence" not in raw.lower():
+            # Log anyway for backtesting
+            trades_review.insert_one({
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "direction": direction,
+                "raw_output": raw,
+                "parsed_trade": None,
+                "accepted": False,
+                "timestamp": datetime.utcnow()
+            })
             return None
 
-        lines = raw.splitlines()
+        # Regex patterns for robust parsing
         trade = {
             "trade": None,
             "confidence": None,
@@ -137,24 +175,41 @@ def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_cont
             "thesis": ""
         }
 
-        for line in lines:
-            line = line.strip()
-            if line.lower().startswith("**trade:**"):
-                trade["trade"] = "LONG" if "long" in line.lower() else "SHORT"
-            elif line.lower().startswith("**confidence:**"):
-                trade["confidence"] = int(''.join(filter(str.isdigit, line)))
-            elif line.lower().startswith("**entry:**"):
-                trade["entry"] = float(''.join(filter(lambda c: c.isdigit() or c == '.', line)))
-            elif line.lower().startswith("**stop loss:**"):
-                trade["sl"] = float(''.join(filter(lambda c: c.isdigit() or c == '.', line)))
-            elif line.lower().startswith("**take profit:**"):
-                trade["tp"] = float(''.join(filter(lambda c: c.isdigit() or c == '.', line)))
-            elif line.lower().startswith("**thesis:**"):
-                trade["thesis"] = line.split("**thesis:**", 1)[-1].strip()
+        trade_match = re.search(r"\*\*Trade:\*\*\s*(LONG|SHORT)", raw, re.IGNORECASE)
+        conf_match = re.search(r"\*\*Confidence:\*\*\s*(\d+)", raw, re.IGNORECASE)
+        entry_match = re.search(r"\*\*Entry:\*\*\s*([\d\.]+)", raw, re.IGNORECASE)
+        sl_match = re.search(r"\*\*Stop Loss:\*\*\s*([\d\.]+)", raw, re.IGNORECASE)
+        tp_match = re.search(r"\*\*Take Profit:\*\*\s*([\d\.]+)", raw, re.IGNORECASE)
+        thesis_match = re.search(r"\*\*Thesis:\*\*\s*(.+)", raw, re.IGNORECASE)
+
+        if trade_match:
+            trade["trade"] = trade_match.group(1).upper()
+        if conf_match:
+            trade["confidence"] = int(conf_match.group(1))
+        if entry_match:
+            trade["entry"] = float(entry_match.group(1))
+        if sl_match:
+            trade["sl"] = float(sl_match.group(1))
+        if tp_match:
+            trade["tp"] = float(tp_match.group(1))
+        if thesis_match:
+            trade["thesis"] = thesis_match.group(1).strip()
+
+        # Log all evaluations for backtest
+        trades_review.insert_one({
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "direction": direction,
+            "raw_output": raw,
+            "parsed_trade": trade,
+            "accepted": trade["confidence"] and trade["confidence"] >= 60,
+            "timestamp": datetime.utcnow()
+        })
 
         if trade["confidence"] and trade["confidence"] >= 60:
             return trade
         else:
+            print("[⚠️ Discarded Low-Confidence Trade]", trade)
             return None
 
     except Exception as e:
