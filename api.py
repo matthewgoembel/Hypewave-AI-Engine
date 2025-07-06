@@ -1,9 +1,8 @@
-from fastapi import FastAPI, Query, UploadFile, File, Form, Body
-from fastapi import BackgroundTasks
+from fastapi import FastAPI, Query, UploadFile, File, Form, Body, Request, BackgroundTasks
 from dotenv import load_dotenv
 from schemas import ChatRequest, ChatResponse
 from db import log_signal, collection, log_chat
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pymongo import DESCENDING
 from intent_router import route_intent, format_for_model, is_trade_setup_question
 from openai import OpenAI
@@ -16,22 +15,35 @@ from market_data_ws import start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
 from telegram_tracker import loop_fetch
-from fastapi import Body, Request, Query
 import base64, random, os, re, threading
-from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 from forex_calender import router as forex_router
 from contextlib import asynccontextmanager
 
-
 load_dotenv()
 client = OpenAI()
 
+@asynccontextmanager
+async def lifespan(app):
+    print("[Telegram Tracker] Starting background fetch loop...")
+    fetch_task = asyncio.create_task(loop_fetch())
+    yield
+    print("[Telegram Tracker] Shutting down background fetch loop...")
+    fetch_task.cancel()
+    try:
+        await fetch_task
+    except asyncio.CancelledError:
+        print("[Telegram Tracker] Fetch loop cancelled cleanly.")
+
+# ✅ Create FastAPI app *before* using it
+app = FastAPI(lifespan=lifespan)
+
+# ✅ Include routers, middlewares, and mounts
 app.include_router(forex_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or set specific domains like ["http://localhost:3000"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,10 +56,10 @@ def on_startup():
     start_ws_listener()
     start_signal_engine()
 
-
 @app.head("/")
 def root_head(request: Request):
     return {"ok": True}
+
 
 # @app.on_event("startup")
 # async def start_telegram_scraper():
