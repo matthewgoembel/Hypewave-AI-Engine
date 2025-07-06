@@ -1,22 +1,13 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
-const path = require("path");
 
 async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
   const url = `https://www.tradingview.com/chart/?symbol=BINANCE:${symbol}&interval=${tf}`;
 
-  const chromePath = path.resolve(
-    __dirname,
-    ".local-chromium",
-    "chrome",
-    "win64-138.0.7204.92",
-    "chrome-win64",
-    "chrome.exe"
-  );
-
+  // 🟢 Launch Puppeteer without any executablePath
+  // This makes it automatically use the bundled Chromium
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath: chromePath,
     args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
@@ -25,7 +16,7 @@ async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
 
   console.log(`📸 Navigating to ${url}`);
   await page.goto(url, { waitUntil: "networkidle2" });
-  await new Promise(resolve => setTimeout(resolve, 3000)); // Let chart load
+  await new Promise((resolve) => setTimeout(resolve, 3000)); // Let chart load
 
   // Save to /tmp/ (guaranteed writable)
   const tmpPath = `/tmp/${symbol}_${tf}.png`;
@@ -48,7 +39,7 @@ const args = process.argv.slice(2);
 screenshotTV(args[0] || "BTCUSDT", args[1] || "15");
 
 // Show errors
-process.on("unhandledRejection", err => {
+process.on("unhandledRejection", (err) => {
   console.error("❌ UNHANDLED ERROR:", err);
   process.exit(1);
 });
