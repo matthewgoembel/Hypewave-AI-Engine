@@ -1,6 +1,6 @@
 import base64, subprocess, os
 from openai import OpenAI
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 from db import log_signal  # ✅ Use correct logger for trade signals
 from market_data_ws import get_latest_ohlc, build_market_context
@@ -162,7 +162,7 @@ def evaluate_trade_opportunity(symbol, timeframe, candles, patterns, market_cont
                 "raw_output": raw,
                 "parsed_trade": None,
                 "accepted": False,
-                "timestamp": datetime.utcnow()
+                "timestamp": datetime.now(timezone.utc)
             })
             return None
 
