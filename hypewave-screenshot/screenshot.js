@@ -1,12 +1,25 @@
 const puppeteer = require("puppeteer");
 const fs = require("fs");
+const path = require("path");
 
 async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
   const url = `https://www.tradingview.com/chart/?symbol=BINANCE:${symbol}&interval=${tf}`;
+
+  const executablePath = path.resolve(
+    __dirname,
+    ".local-chromium",
+    "chrome",
+    "win64-138.0.7204.92",
+    "chrome-win64",
+    "chrome.exe"
+  );
+
   const browser = await puppeteer.launch({
     headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    executablePath
   });
+
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 720 });
 
@@ -19,26 +32,23 @@ async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
   await page.screenshot({ path: tmpPath });
   console.log(`✅ Saved screenshot to ${tmpPath}`);
 
-  // Optional: Copy to media/ so it's publicly accessible (if you use /media in your API)
+  // Optional: Copy to media/
   const mediaPath = `../media/${symbol}_${tf}.png`;
-
-  // Ensure media folder exists
   if (!fs.existsSync("../media")) {
     fs.mkdirSync("../media");
   }
-
   fs.copyFileSync(tmpPath, mediaPath);
   console.log(`📁 Copied screenshot to ${mediaPath}`);
 
   await browser.close();
 }
 
-// Accept CLI args: node screenshot.js BTCUSDT 15
+// Accept CLI args
 const args = process.argv.slice(2);
 screenshotTV(args[0] || "BTCUSDT", args[1] || "15");
 
 // Show errors
-process.on('unhandledRejection', err => {
+process.on("unhandledRejection", err => {
   console.error("❌ UNHANDLED ERROR:", err);
   process.exit(1);
 });
