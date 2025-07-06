@@ -1,5 +1,6 @@
 from telethon.sync import TelegramClient
 from telethon.tl.types import Message
+from telethon import TelegramClient
 from datetime import datetime, timezone
 from db import client
 import os, asyncio
@@ -44,10 +45,7 @@ async def fetch_latest():
             last_id = last_saved["id"] if last_saved else 0
 
             try:
-                async for message in tg_client.iter_messages(username, limit=10):
-                    if message.id <= last_id:
-                        break
-
+                async for message in tg_client.iter_messages(username, min_id=last_id):
                     media_url = None
                     if message.media and message.photo:
                         try:
