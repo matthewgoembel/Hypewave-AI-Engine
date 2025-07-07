@@ -10,7 +10,6 @@ from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
 from db import get_latest_news
 from signal_engine import generate_alerts_for_symbol
-from auto_signal_runner import start_signal_engine
 from market_data_ws import start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
@@ -24,13 +23,13 @@ load_dotenv()
 client = OpenAI()
 
 @asynccontextmanager
+@asynccontextmanager
 async def lifespan(app):
     print("[Telegram Tracker] Starting background fetch loop...")
     fetch_task = asyncio.create_task(loop_fetch())
 
     # 🔹 Start your startup tasks here:
     start_ws_listener()
-    start_signal_engine()
 
     yield
 
@@ -312,7 +311,7 @@ async def process_chart_analysis(chart: UploadFile, bias: str, timeframe: str, e
             "raw_output": result_text,
             "structured_output": structured_output,
             "metadata": {
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
                 "filename": chart.filename,
                 "timeframe": timeframe,
                 "bias": bias,
@@ -372,7 +371,7 @@ async def get_latest_signals(
         from db import client as mongo_client
         signals_coll = mongo_client["hypewave"]["signals"]
 
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         base_query = {
             "output.source": "AI Confluence Engine",
