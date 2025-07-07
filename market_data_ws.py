@@ -4,7 +4,6 @@ import asyncio
 import websockets
 import json
 from collections import defaultdict, deque
-from signal_engine import generate_alerts_for_symbol  # ✅ Use the AI evaluation engine
 
 # Settings
 CANDLE_STREAMS = {
@@ -58,6 +57,7 @@ async def listen():
 
 # --- Signal Detection Loop (runs every 30s) ---
 async def run_signal_detection():
+    from signal_engine import generate_alerts_for_symbol  # ✅ Use the AI evaluation engine
     while True:
         print("🔁 Running signal evaluation cycle...")
         symbols_processed = set()
