@@ -50,7 +50,7 @@ async def listen():
             except Exception as e:
                 print(f"[WebSocket error] {e}")
 
-a# DO NOT import signal_engine at the top!
+# DO NOT import signal_engine at the top!
 
 # --- Signal Detection Loop (runs every 30s) ---
 async def run_signal_detection():
