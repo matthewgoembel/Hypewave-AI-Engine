@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 load_dotenv()
 client = OpenAI()
 
+
 @asynccontextmanager
 async def lifespan(app):
     print("[Telegram Tracker] Starting background fetch loop...")
@@ -70,8 +71,6 @@ async def chat_router(
     image: UploadFile = File(None)
 ):
     try:
-        import re
-
         KNOWN_SYMBOLS = ["BTC", "ETH", "SOL", "XAU", "SPX", "NASDAQ"]
 
         def extract_symbol(text: str):
@@ -81,23 +80,19 @@ async def chat_router(
                     return sym
             return "BTC"
 
+        # 🔹 Determine intent and formatting
         intent_data = route_intent(input)
         task = format_for_model(intent_data)
 
         if task["type"] != "openai":
             return {"error": "Only OpenAI tasks are supported in this route."}
 
-        # 1. Extract symbol from input using smart match
         symbol = extract_symbol(input)
 
-        # 2. Fetch live OHLC data
+        # 🔹 Get live candles
         from market_data_ws import get_latest_ohlc
         ohlc_list = get_latest_ohlc(f"{symbol}USDT", "1h") or []
-
-        # Ensure we get the most recent candle
-        price_data = ohlc_list[-1] if isinstance(ohlc_list, list) and ohlc_list else {}
-
-        print(f"[DEBUG] Live OHLC for {symbol}:", price_data)
+        price_data = ohlc_list[-1] if ohlc_list else {}
 
         price_summary = (
             f"<b>Live Price Data for ${symbol}:</b><br>"
@@ -106,112 +101,58 @@ async def chat_router(
             f"• Volume: {price_data.get('volume', 'N/A')}<br>"
         )
 
-        # 3. Load signal and sentiment context
-        is_setup = is_trade_setup_question(task["prompt"])
-        market_context = get_market_context(input)
-        pattern_signals = generate_alerts_for_symbol(symbol)
-        from pattern_detection import group_patterns_by_bias
+        # 🔹 Get market context
+        from market_context import get_market_context
+        market_context = get_market_context(symbol)
 
-        # Fallback if no signals
-        if pattern_signals:
-            formatted_signals = "<br>".join([
-                f"• {s['note']} (Confidence: {s['confidence']}%, Bias: {s['bias']})"
-                for s in pattern_signals[:5]
-            ])
-        else:
-            formatted_signals = (
-                "No clear technical patterns detected in the latest candles. "
-                "Please consider price action and trend context."
-            )
-
-        # Summarize bias counts
-        bias_summary = group_patterns_by_bias(pattern_signals)
-        bullish_count = len(bias_summary["bullish"])
-        bearish_count = len(bias_summary["bearish"])
-        neutral_count = len(bias_summary["neutral"])
-
-        pattern_summary = (
-            f"<b>Pattern Bias Summary:</b><br>"
-            f"• Bullish Patterns: {bullish_count}<br>"
-            f"• Bearish Patterns: {bearish_count}<br>"
-            f"• Neutral Patterns: {neutral_count}<br>"
+        # 🔹 Build prompt
+        system_prompt = (
+            f"You are Hypewave AI, a professional trader.\n"
+            f"NEVER refer to yourself as an AI.\n"
+            f"You provide confident, actionable analysis.\n\n"
+            f"{price_summary}\n\n"
+            f"<b>Market Context:</b><br>{market_context}\n\n"
+            f"Answer clearly and concisely."
         )
 
-        # Build prompt
-        if not is_setup and intent_data["intent"] in ("chat", "trader_chat"):
-            system_prompt = (
-                f"You are Hypewave AI, a professional trader with an exceptional record.\n"
-                f"NEVER refer to yourself as an AI.\n"
-                f"You always produce confident, actionable analysis with no disclaimers.\n"
-                f"Use the live price data, chart signals, and sentiment context below.\n"
-                f"Your goal is to:\n"
-                f"- Analyze the data as a human trader.\n"
-                f"- Provide short and specific bullish and bearish scenarios.\n"
-                f"- But ONLY have ONE definitive recommendation: Bullish or Bearish, plus a confidence rating (1-100%) so theres is always a Bias.\n"
-                f"- Please Include a trade setup as well with entry take profit, and stop loss IF possible and in answers the questions asked.\n\n"
-                f"Always format your response like this:\n\n"
-                f"Thesis: pecific, non-ambiguous, confident, smart, simple, easy to read \n"
-                f"<concise overview>\n\n"
-                f"Most confident Bias Scenario(bearish/bullish):\n"
-                f"<key points>\n\n"
-                f"Recommendation: specific, non-ambiguous, confident, smart, simple\n"
-                f"Confidence Rating: (1–100%)\n"
-                f"Suggested Trade setup or future setup: (if applicable)\n"
-                f"Less confident Bias Scenario/if goes wrong(bearish/bullish-opposite of the previous):\n"
-                f"<key points>\n\n"
-                f"{price_summary}\n"
-                f"<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}\n\n"
-                f"{pattern_summary}\n"
-                f"<b>Sentiment & Macro Context:</b><br>{market_context}\n\n"
-                f"🧠 Use bold headers, bullet points, and no dense paragraphs."
-            )
-        else:
-            system_prompt = (
-                task["system_prompt"]
-                + f"\n\n{price_summary}"
-                + f"\n<b>Live Chart Signals for ${symbol}:</b><br>{formatted_signals}"
-                + f"\n\n{pattern_summary}"
-                + f"\n<b>Market Context:</b><br>{market_context}"
-            )
-
-        # 5. Build and send GPT messages
+        # 🔹 Prepare GPT messages
         messages = [{"role": "system", "content": system_prompt}]
         user_content = {"type": "text", "text": task["prompt"]}
 
         if image:
             image_bytes = await image.read()
             base64_image = base64.b64encode(image_bytes).decode("utf-8")
-            image_message = {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/png;base64,{base64_image}",
-                    "detail": "high"
-                }
-            }
-            messages.append({"role": "user", "content": [user_content, image_message]})
+            messages.append({
+                "role": "user",
+                "content": [user_content, {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{base64_image}",
+                        "detail": "high"
+                    }
+                }]
+            })
         else:
             messages.append({"role": "user", "content": task["prompt"]})
 
+        # 🔹 GPT Completion
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
             max_tokens=1200
         )
-
         raw_output = response.choices[0].message.content.strip()
 
+        # 🔹 Log the result
         log_chat("demo", {"input": input}, {"result": raw_output, "source": "chat.analysis"})
 
         return {"intent": intent_data["intent"], "result": raw_output}
-                    
-
 
     except Exception as e:
         return {
             "intent": "error",
             "result": f"<b>⚠️ Error:</b><br>{str(e)}"
         }
-
 
 
 
