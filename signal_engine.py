@@ -1,7 +1,7 @@
 # signal_engine.py
 
 from openai import OpenAI
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List
 from db import log_signal
 
