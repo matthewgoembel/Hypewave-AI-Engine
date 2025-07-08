@@ -1,8 +1,7 @@
 const puppeteer = require("puppeteer");
-const fs = require("fs");
 
-async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
-  const url = `https://www.binance.us/spot-trade/${symbol.toLowerCase()}`;
+async function scrapeTradingViewOverview(symbol = "XAUUSD") {
+  const url = `https://www.tradingview.com/symbols/${symbol}/`;
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -12,47 +11,34 @@ async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 720 });
 
-  // 🟢 Block images, fonts, stylesheets
-  await page.setRequestInterception(true);
-  page.on("request", (request) => {
-    const resourceType = request.resourceType();
-    if (["image", "stylesheet", "font"].includes(resourceType)) {
-      request.abort();
-    } else {
-      request.continue();
-    }
+  console.log(`🔍 Navigating to ${url}`);
+  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+
+  // Wait for the price element
+  await page.waitForSelector('[data-symbol-price]');
+
+  // Extract data
+  const data = await page.evaluate(() => {
+    const priceEl = document.querySelector('[data-symbol-price]');
+    const changeEl = document.querySelector('[data-symbol-change]');
+    const titleEl = document.querySelector("h1") || {};
+
+    return {
+      name: titleEl.innerText || "N/A",
+      price: priceEl ? priceEl.innerText.trim() : "N/A",
+      change: changeEl ? changeEl.innerText.trim() : "N/A",
+    };
   });
 
-  console.log(`📸 Navigating to ${url}`);
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 90000 });
-
-  // 🟢 Wait for the chart container to be visible
-  await page.waitForSelector(".kline-container", { timeout: 20000 });
-
-  await new Promise((resolve) => setTimeout(resolve, 3000)); // Let chart render
-
-  // Save to /tmp/
-  const tmpPath = `/tmp/${symbol}_${tf}.png`;
-  await page.screenshot({ path: tmpPath });
-  console.log(`✅ Saved screenshot to ${tmpPath}`);
-
-  // Copy to media/
-  const mediaPath = `../media/${symbol}_${tf}.png`;
-  if (!fs.existsSync("../media")) {
-    fs.mkdirSync("../media");
-  }
-  fs.copyFileSync(tmpPath, mediaPath);
-  console.log(`📁 Copied screenshot to ${mediaPath}`);
+  console.log("✅ Extracted Data:", data);
 
   await browser.close();
+  return data;
 }
 
 // Accept CLI args
 const args = process.argv.slice(2);
-screenshotTV(args[0] || "BTCUSDT", args[1] || "15");
-
-// Show errors
-process.on("unhandledRejection", (err) => {
-  console.error("❌ UNHANDLED ERROR:", err);
+scrapeTradingViewOverview(args[0] || "XAUUSD").catch(err => {
+  console.error("❌ ERROR:", err);
   process.exit(1);
 });
