@@ -2,7 +2,7 @@ const puppeteer = require("puppeteer");
 const fs = require("fs");
 
 async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
-  const url = `https://www.tradingview.com/chart/symbols/${symbol}USD`;
+  const url = `https://www.binance.us/spot-trade/${symbol.toLowerCase()}`;
 
   const browser = await puppeteer.launch({
     headless: true,
@@ -12,7 +12,7 @@ async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 720 });
 
-  // 🟢 Block images, fonts, and stylesheets
+  // 🟢 Block images, fonts, stylesheets
   await page.setRequestInterception(true);
   page.on("request", (request) => {
     const resourceType = request.resourceType();
@@ -24,7 +24,11 @@ async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
   });
 
   console.log(`📸 Navigating to ${url}`);
-  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+  await page.goto(url, { waitUntil: "networkidle2", timeout: 90000 });
+
+  // 🟢 Wait for the chart container to be visible
+  await page.waitForSelector(".kline-container", { timeout: 20000 });
+
   await new Promise((resolve) => setTimeout(resolve, 3000)); // Let chart render
 
   // Save to /tmp/
