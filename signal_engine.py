@@ -13,6 +13,10 @@ TIMEFRAMES = ["5m", "15m", "1h", "4h"]
 def generate_alerts_for_symbol(symbol: str) -> List[str]:
     alerts = set()
 
+    # Import Mongo for duplicate detection
+    from db import client as mongo_client
+    signals_coll = mongo_client["hypewave"]["signals"]
+
     for tf in TIMEFRAMES:
         candles = get_latest_ohlc(f"{symbol}USDT", tf)
         if not candles or len(candles) < 10:
@@ -22,8 +26,41 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
 
         trade = evaluate_trade_opportunity(symbol, tf, candles)
         if trade:
-            print("[✅ TRADE]", trade)
-            msg = f"${symbol} | {trade['trade']} | {tf} | Entry: {trade['entry']} | Conf: {trade['confidence']}"
+            # ✅ Check for duplicate recent signals
+            recent = signals_coll.find_one(
+                {
+                    "input.symbol": symbol,
+                    "output.timeframe": tf,
+                    "output.trade": trade["trade"],
+                },
+                sort=[("created_at", -1)]
+            )
+
+            skip_due_to_duplicate = False
+
+            if recent:
+                last_entry = recent["output"].get("entry")
+                last_time = recent["created_at"]
+                age_minutes = (datetime.now(timezone.utc) - last_time).total_seconds() / 60
+
+                if (
+                    age_minutes < 5
+                    and isinstance(last_entry, (int, float))
+                    and isinstance(trade["entry"], (int, float))
+                ):
+                    pct_diff = abs(trade["entry"] - last_entry) / last_entry * 100
+                    if pct_diff < 0.2:
+                        skip_due_to_duplicate = True
+
+            if skip_due_to_duplicate:
+                print("[⚠️] Skipping duplicate signal.")
+                continue
+
+            # ✅ Log signal
+            msg = (
+                f"${symbol} | {trade['trade']} | {tf} | "
+                f"Entry: {trade['entry']} | Conf: {trade['confidence']}"
+            )
             log_signal("partner-ai", {"symbol": symbol}, {
                 "result": msg,
                 "source": "AI Candle Engine",
@@ -32,13 +69,16 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
                 "entry": trade["entry"],
                 "sl": trade["sl"],
                 "tp": trade["tp"],
-                "thesis": trade["thesis"]
+                "thesis": trade["thesis"],
+                "trade": trade["trade"]  # Save direction for dedupe
             })
             alerts.add(msg)
+            print(f"[✅ TRADE] {trade}")
         else:
             print("[❌] No confident trade returned.")
 
     return list(alerts)
+
 
 def evaluate_trade_opportunity(symbol, timeframe, candles) -> dict:
     from db import trades_review
@@ -87,12 +127,12 @@ Candle Data (latest last):
 
     # Parse
     trade = {
-        "trade": None,
-        "confidence": None,
-        "entry": None,
-        "sl": None,
-        "tp": None,
-        "thesis": ""
+        "trade": "N/A",
+        "confidence": 0,
+        "entry": "—",
+        "sl": "—",
+        "tp": "—",
+        "thesis": "—"
     }
 
     trade_match = re.search(r"\*\*Trade:\*\*\s*(LONG|SHORT)", raw, re.IGNORECASE)
