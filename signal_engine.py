@@ -31,6 +31,7 @@ signals_coll = mongo_client["hypewave"]["signals"]
 
 def generate_alerts_for_symbol(symbol: str) -> List[str]:
     alerts = set()
+    candles_by_tf = {}
 
     for tf in TIMEFRAMES:
         candles = get_latest_ohlc(f"{symbol}USDT", tf)
@@ -40,95 +41,98 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
         if len(candles) < 10:
             logger.warning("[⚠️] Not enough candles (%d) for %s %s", len(candles), symbol, tf)
             continue
+        candles_by_tf[tf] = candles
 
-        logger.info("[🧠 Evaluating] %s %s", symbol, tf)
+    if not candles_by_tf:
+        logger.warning("[⚠️] No valid candles collected for %s.", symbol)
+        return list(alerts)
 
-        try:
-            trade = evaluate_trade_opportunity(symbol, tf, candles)
-            if not trade:
-                logger.info("[❌] No confident trade returned.")
-                continue
+    logger.info("[🧠 Evaluating multi-timeframe setup] %s", symbol)
 
-            # Check for duplicate recent signals
-            recent = signals_coll.find_one(
-                {
-                    "input.symbol": symbol,
-                    "output.timeframe": tf,
-                    "output.trade": trade["trade"],
-                },
-                sort=[("created_at", -1)]
+    try:
+        trade = evaluate_multi_timeframe_opportunity(symbol, candles_by_tf)
+        if not trade:
+            logger.info("[❌] No confident trade returned.")
+            return list(alerts)
+
+        # Check for duplicate recent signals (same trade type within 5 min and ~0.2% entry)
+        recent = signals_coll.find_one(
+            {
+                "input.symbol": symbol,
+                "output.trade": trade["trade"],
+            },
+            sort=[("created_at", -1)]
+        )
+
+        skip_due_to_duplicate = False
+        if recent:
+            last_entry = recent["output"].get("entry")
+            last_time = recent["created_at"]
+
+            if last_time.tzinfo is None:
+                last_time = last_time.replace(tzinfo=timezone.utc)
+
+            age_minutes = (datetime.now(timezone.utc) - last_time).total_seconds() / 60
+            is_recent = age_minutes < 5
+            is_close_price = (
+                isinstance(last_entry, (int, float)) and
+                isinstance(trade["entry"], (int, float)) and
+                abs(trade["entry"] - last_entry) / last_entry * 100 < 0.2
             )
 
-            skip_due_to_duplicate = False
-            if recent:
-                last_entry = recent["output"].get("entry")
-                last_time = recent["created_at"]
+            if is_recent and is_close_price:
+                skip_due_to_duplicate = True
 
-                # Ensure timezone-aware
-                if last_time.tzinfo is None:
-                    last_time = last_time.replace(tzinfo=timezone.utc)
+        if skip_due_to_duplicate:
+            logger.info("[⚠️] Skipping duplicate signal.")
+            return list(alerts)
 
-                age_minutes = (datetime.now(timezone.utc) - last_time).total_seconds() / 60
+        # Log signal
+        msg = (
+            f"${symbol} | {trade['trade']} | MULTI | "
+            f"Entry: {trade['entry']} | Conf: {trade['confidence']}"
+        )
+        log_signal(
+            "partner-ai",
+            {"symbol": symbol},
+            {
+                "result": msg,
+                "source": "AI Multi-Timeframe Engine",
+                "timeframe": "multi",
+                "confidence": trade["confidence"],
+                "entry": trade["entry"],
+                "sl": trade["sl"],
+                "tp": trade["tp"],
+                "thesis": trade["thesis"],
+                "trade": trade["trade"]
+            }
+        )
+        alerts.add(msg)
+        logger.info("[✅ TRADE] %s", trade)
 
-                is_recent = age_minutes < 5
-                is_close_price = (
-                    isinstance(last_entry, (int, float)) and
-                    isinstance(trade["entry"], (int, float)) and
-                    abs(trade["entry"] - last_entry) / last_entry * 100 < 0.2
-                )
+        # Clean up old signals
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        deleted = signals_coll.delete_many({"created_at": {"$lt": cutoff}})
+        if deleted.deleted_count > 0:
+            logger.info("[🧹] Deleted %d old signals.", deleted.deleted_count)
 
-                if is_recent and is_close_price:
-                    skip_due_to_duplicate = True
-
-            if skip_due_to_duplicate:
-                logger.info("[⚠️] Skipping duplicate signal.")
-                continue
-
-            # Log signal
-            msg = (
-                f"${symbol} | {trade['trade']} | {tf} | "
-                f"Entry: {trade['entry']} | Conf: {trade['confidence']}"
-            )
-            log_signal(
-                "partner-ai",
-                {"symbol": symbol},
-                {
-                    "result": msg,
-                    "source": "AI Candle Engine",
-                    "timeframe": tf,
-                    "confidence": trade["confidence"],
-                    "entry": trade["entry"],
-                    "sl": trade["sl"],
-                    "tp": trade["tp"],
-                    "thesis": trade["thesis"],
-                    "trade": trade["trade"]
-                }
-            )
-            alerts.add(msg)
-            logger.info("[✅ TRADE] %s", trade)
-
-            # Clean up old signals
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-            deleted = signals_coll.delete_many({"created_at": {"$lt": cutoff}})
-            if deleted.deleted_count > 0:
-                logger.info("[🧹] Deleted %d old signals.", deleted.deleted_count)
-
-        except Exception as e:
-            logger.exception("[❌ Error processing %s %s]", symbol, tf)
+    except Exception as e:
+        logger.exception("[❌ Error processing multi-timeframe for %s]", symbol)
 
     return list(alerts)
 
 
-def evaluate_trade_opportunity(symbol, timeframe, candles) -> dict:
+
+def evaluate_multi_timeframe_opportunity(symbol, candles_by_tf) -> dict:
     from db import trades_review
 
     prompt = f"""
-You are a professional trader. Analyze the following raw OHLC candles and decide whether there is a high-probability trade setup.
+You are a professional trader. Analyze the following OHLC candles across multiple timeframes (4h, 1h, 15m, 5m) and determine the single highest-probability trade setup.
+
+Timeframes and candles:
+{candles_by_tf}
 
 Respond ONLY if there is a setup with >{CONFIDENCE_THRESHOLD}% probability.
-
-Candle Data (latest last):
-{candles}
 
 🎯 Respond EXACTLY in this format:
 
@@ -146,7 +150,7 @@ Candle Data (latest last):
             {"role": "system", "content": "You are a highly accurate trading assistant."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=600
+        max_tokens=700
     )
 
     raw = response.choices[0].message.content.strip()
@@ -155,7 +159,7 @@ Candle Data (latest last):
     if not raw or "confidence" not in raw.lower():
         trades_review.insert_one({
             "symbol": symbol,
-            "timeframe": timeframe,
+            "timeframe": "multi",
             "raw_output": raw,
             "parsed_trade": None,
             "accepted": False,
@@ -163,7 +167,6 @@ Candle Data (latest last):
         })
         return None
 
-    # Parse response
     trade = {
         "trade": "N/A",
         "confidence": 0,
@@ -197,7 +200,7 @@ Candle Data (latest last):
         logger.exception("[❌ Parsing error]")
         trades_review.insert_one({
             "symbol": symbol,
-            "timeframe": timeframe,
+            "timeframe": "multi",
             "raw_output": raw,
             "parsed_trade": None,
             "accepted": False,
@@ -207,7 +210,7 @@ Candle Data (latest last):
 
     trades_review.insert_one({
         "symbol": symbol,
-        "timeframe": timeframe,
+        "timeframe": "multi",
         "raw_output": raw,
         "parsed_trade": trade,
         "accepted": trade["confidence"] and trade["confidence"] >= CONFIDENCE_THRESHOLD,
