@@ -23,7 +23,6 @@ load_dotenv()
 client = OpenAI()
 
 @asynccontextmanager
-@asynccontextmanager
 async def lifespan(app):
     print("[Telegram Tracker] Starting background fetch loop...")
     fetch_task = asyncio.create_task(loop_fetch())
