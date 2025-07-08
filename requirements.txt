@@ -27,3 +27,4 @@ telethon
 certifi
 python-dotenv
 beautifulsoup4
+playwright
