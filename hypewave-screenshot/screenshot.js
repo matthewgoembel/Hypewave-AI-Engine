@@ -2,7 +2,7 @@ const puppeteer = require("puppeteer");
 const fs = require("fs");
 
 async function screenshotTV(symbol = "BTCUSDT", tf = "15") {
-  const url = `https://www.tradingview.com/chart/?symbol=BINANCE:${symbol}&interval=${tf}`;
+  const url = `https://www.tradingview.com/chart/symbols/${symbol}USD`;
 
   const browser = await puppeteer.launch({
     headless: true,
