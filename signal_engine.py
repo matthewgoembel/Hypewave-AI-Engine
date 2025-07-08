@@ -13,7 +13,6 @@ TIMEFRAMES = ["5m", "15m", "1h", "4h"]
 def generate_alerts_for_symbol(symbol: str) -> List[str]:
     alerts = set()
 
-    # Import Mongo for duplicate detection
     from db import client as mongo_client
     signals_coll = mongo_client["hypewave"]["signals"]
 
@@ -70,14 +69,22 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
                 "sl": trade["sl"],
                 "tp": trade["tp"],
                 "thesis": trade["thesis"],
-                "trade": trade["trade"]  # Save direction for dedupe
+                "trade": trade["trade"]
             })
             alerts.add(msg)
             print(f"[✅ TRADE] {trade}")
+
+            # ✅ Clean up signals older than 24 hours
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            deleted = signals_coll.delete_many({"created_at": {"$lt": cutoff}})
+            if deleted.deleted_count > 0:
+                print(f"[🧹] Deleted {deleted.deleted_count} old signals.")
+
         else:
             print("[❌] No confident trade returned.")
 
     return list(alerts)
+
 
 
 def evaluate_trade_opportunity(symbol, timeframe, candles) -> dict:

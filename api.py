@@ -71,6 +71,8 @@ async def chat_router(
     image: UploadFile = File(None)
 ):
     try:
+        import re
+
         KNOWN_SYMBOLS = ["BTC", "ETH", "SOL", "XAU", "SPX", "NASDAQ"]
 
         def extract_symbol(text: str):
@@ -80,7 +82,6 @@ async def chat_router(
                     return sym
             return "BTC"
 
-        # 🔹 Determine intent and formatting
         intent_data = route_intent(input)
         task = format_for_model(intent_data)
 
@@ -89,10 +90,10 @@ async def chat_router(
 
         symbol = extract_symbol(input)
 
-        # 🔹 Get live candles
+        # 1️⃣ Live OHLC
         from market_data_ws import get_latest_ohlc
         ohlc_list = get_latest_ohlc(f"{symbol}USDT", "1h") or []
-        price_data = ohlc_list[-1] if ohlc_list else {}
+        price_data = ohlc_list[-1] if isinstance(ohlc_list, list) and ohlc_list else {}
 
         price_summary = (
             f"<b>Live Price Data for ${symbol}:</b><br>"
@@ -101,49 +102,43 @@ async def chat_router(
             f"• Volume: {price_data.get('volume', 'N/A')}<br>"
         )
 
-        # 🔹 Get market context
-        from market_context import get_market_context
-        market_context = get_market_context(symbol)
+        # 2️⃣ Macro/sentiment context
+        market_context = get_market_context(input)
 
-        # 🔹 Build prompt
+        # 3️⃣ Build prompt
         system_prompt = (
-            f"You are Hypewave AI, a professional trader.\n"
-            f"NEVER refer to yourself as an AI.\n"
-            f"You provide confident, actionable analysis.\n\n"
-            f"{price_summary}\n\n"
+            f"{task['system_prompt']}\n\n"
+            f"{price_summary}\n"
             f"<b>Market Context:</b><br>{market_context}\n\n"
-            f"Answer clearly and concisely."
+            f"🧠 Use bold headers, bullet points, and no dense paragraphs."
         )
 
-        # 🔹 Prepare GPT messages
+        # 4️⃣ Build GPT request
         messages = [{"role": "system", "content": system_prompt}]
         user_content = {"type": "text", "text": task["prompt"]}
 
         if image:
             image_bytes = await image.read()
             base64_image = base64.b64encode(image_bytes).decode("utf-8")
-            messages.append({
-                "role": "user",
-                "content": [user_content, {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/png;base64,{base64_image}",
-                        "detail": "high"
-                    }
-                }]
-            })
+            image_message = {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{base64_image}",
+                    "detail": "high"
+                }
+            }
+            messages.append({"role": "user", "content": [user_content, image_message]})
         else:
             messages.append({"role": "user", "content": task["prompt"]})
 
-        # 🔹 GPT Completion
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
             max_tokens=1200
         )
+
         raw_output = response.choices[0].message.content.strip()
 
-        # 🔹 Log the result
         log_chat("demo", {"input": input}, {"result": raw_output, "source": "chat.analysis"})
 
         return {"intent": intent_data["intent"], "result": raw_output}
@@ -153,7 +148,6 @@ async def chat_router(
             "intent": "error",
             "result": f"<b>⚠️ Error:</b><br>{str(e)}"
         }
-
 
 
 async def process_chart_analysis(chart: UploadFile, bias: str, timeframe: str, entry_intent: str, question: str):
@@ -303,50 +297,40 @@ async def fetch_news(limit: int = 10):
 
 @app.get("/signals/latest")
 async def get_latest_signals(
-    limit: int = Query(10, le=50),
-    min_confidence: int = Query(70, ge=0, le=100),
-    hours: int = Query(2, ge=0, le=24)
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, le=50),
+    min_confidence: int = Query(60, ge=0, le=100)
 ):
-    try:
-        from db import client as mongo_client
-        signals_coll = mongo_client["hypewave"]["signals"]
+    from db import client as mongo_client
+    signals_coll = mongo_client["hypewave"]["signals"]
 
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    # Define cutoff as 24 hours ago
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
 
-        base_query = {
-            "output.source": "AI Confluence Engine",
-            "output.confidence": {"$gte": min_confidence},
-            "created_at": {"$gte": cutoff}
+    base_query = {
+        "output.source": "AI Candle Engine",
+        "output.confidence": {"$gte": min_confidence},
+        "created_at": {"$gte": cutoff}
+    }
+
+    cursor = signals_coll.find(base_query).sort("created_at", DESCENDING).skip(skip).limit(limit)
+    results = list(cursor)
+
+    response = [
+        {
+            "signal_id": str(doc.get("_id")),
+            "user_id": doc.get("user_id"),
+            "input": doc.get("input"),
+            "output": doc.get("output"),
+            "created_at": doc.get("created_at")
         }
+        for doc in results
+    ]
 
-        # First try: recent signals
-        cursor = signals_coll.find(base_query).sort("created_at", DESCENDING).limit(limit)
-        results = list(cursor)
+    return {"latest_signals": response}
 
-        # If not enough, fallback to older signals (drop cutoff filter)
-        if len(results) < limit:
-            fallback_query = {
-                "output.source": "AI Confluence Engine",
-                "output.confidence": {"$gte": min_confidence}
-            }
-            fallback_cursor = signals_coll.find(fallback_query).sort("created_at", DESCENDING).limit(limit)
-            results = list(fallback_cursor)
 
-        # Format for response
-        response = [
-            {
-                "signal_id": str(doc.get("_id")),
-                "user_id": doc.get("user_id"),
-                "input": doc.get("input"),
-                "output": doc.get("output"),
-                "created_at": doc.get("created_at")
-            }
-            for doc in results
-        ]
 
-        return {"latest_signals": response}
-    except Exception as e:
-        return {"error": str(e)}
     
 
 @app.get("/alerts/live")
