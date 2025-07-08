@@ -4,7 +4,6 @@ import asyncio
 import websockets
 import json
 from collections import defaultdict, deque
-from signal_engine import generate_alerts_for_symbol
 
 CANDLE_STREAMS = {
     "BTCUSDT": ["5m", "15m", "1h", "4h"],
@@ -51,17 +50,26 @@ async def listen():
             except Exception as e:
                 print(f"[WebSocket error] {e}")
 
+a# DO NOT import signal_engine at the top!
+
+# --- Signal Detection Loop (runs every 30s) ---
 async def run_signal_detection():
     while True:
-        print("🔁 Running AI evaluation cycle...")
-        for symbol, timeframes in ohlc_data.items():
-            for interval, candles in timeframes.items():
-                if len(candles) < 20:
-                    continue
-                clean_symbol = symbol.replace("USDT", "").replace("USD", "").upper()
-                print(f"[🧠 Sending {clean_symbol} {interval} to AI]")
-                generate_alerts_for_symbol(clean_symbol)
-        await asyncio.sleep(60)
+        print("🔁 Running signal evaluation cycle...")
+        symbols_processed = set()
+        # 🔹 Import here to avoid circular dependency
+        from signal_engine import generate_alerts_for_symbol
+
+        for symbol in ohlc_data.keys():
+            clean_symbol = symbol.replace("USDT", "").replace("USD", "").upper()
+            if clean_symbol not in symbols_processed:
+                print(f"[🧠 Sending {clean_symbol} to AI engine]")
+                alerts = generate_alerts_for_symbol(clean_symbol)
+                for alert in alerts:
+                    print(f"✅ {alert}")
+                symbols_processed.add(clean_symbol)
+        await asyncio.sleep(30)
+
 
 def get_latest_ohlc(symbol: str, interval: str):
     return list(ohlc_data.get(symbol.upper(), {}).get(interval, []))
