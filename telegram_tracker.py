@@ -9,8 +9,9 @@ load_dotenv()
 
 api_id = int(os.getenv("TELEGRAM_API_ID"))
 api_hash = os.getenv("TELEGRAM_API_HASH")
+session_string = os.getenv("TELEGRAM_SESSION")
+
 channel_usernames = [
-    "hypewaveai",
     "WatcherGuru",
     "CryptoProUpdates",
     "TreeNewsFeed",
@@ -21,8 +22,8 @@ channel_usernames = [
 
 collection = client["hypewave"]["telegram_news"]
 
-# Persistent TelegramClient
-tg_client = TelegramClient("sessions/fresh_session", api_id, api_hash)
+from telethon.sessions import StringSession
+tg_client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
 def get_display_name(entity):
     if hasattr(entity, "title") and entity.title:
@@ -56,6 +57,7 @@ async def fetch_latest():
                     except FloodWaitError as e:
                         print(f"[Media download error]: Wait {e.seconds} seconds (from {username})")
 
+                # Always save in your DB
                 if message.text and not collection.find_one({"id": message.id, "source": canonical_username}):
                     doc = {
                         "id": message.id,
@@ -69,10 +71,16 @@ async def fetch_latest():
                     collection.insert_one(doc)
                     print(f"✅ [{canonical_username}] {doc['text'][:60]}...")
 
+                    # 🟢 Forward the message to your news channel
+                    await tg_client.forward_messages(
+                        entity="@hypewaveai",
+                        messages=message
+                    )
+
         except Exception as e:
             print(f"[{username}] ❌ Failed to fetch messages: {e}")
 
-    # Clean old messages
+    # Clean up old messages
     now = datetime.now(timezone.utc)
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
