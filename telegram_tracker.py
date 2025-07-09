@@ -44,8 +44,20 @@ async def fetch_latest():
             display_name = get_display_name(entity)
             canonical_username = entity.username if hasattr(entity, "username") else username
 
+            # 🟢 Check if we have any stored messages
             last_saved = collection.find_one({"source": canonical_username}, sort=[("id", -1)])
-            last_id = last_saved["id"] if last_saved else 0
+
+            if last_saved:
+                last_id = last_saved["id"]
+            else:
+                # No saved messages—get the latest message ID to avoid fetching everything
+                latest = await tg_client.get_messages(username, limit=1)
+                if latest:
+                    last_id = latest[0].id
+                    print(f"[{canonical_username}] 🆕 Starting from latest message ID {last_id}")
+                else:
+                    last_id = 0
+                    print(f"[{canonical_username}] ⚠️ No messages found in channel.")
 
             async for message in tg_client.iter_messages(username, min_id=last_id):
                 media_url = None
