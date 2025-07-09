@@ -4,6 +4,7 @@ from db import client
 import os, asyncio
 from telethon.errors import FloodWaitError
 from dotenv import load_dotenv
+from telethon.sessions import StringSession
 
 load_dotenv()
 
@@ -22,7 +23,6 @@ channel_usernames = [
 
 collection = client["hypewave"]["telegram_news"]
 
-from telethon.sessions import StringSession
 tg_client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
 def get_display_name(entity):
@@ -57,7 +57,6 @@ async def fetch_latest():
                     except FloodWaitError as e:
                         print(f"[Media download error]: Wait {e.seconds} seconds (from {username})")
 
-                # Always save in your DB
                 if message.text and not collection.find_one({"id": message.id, "source": canonical_username}):
                     doc = {
                         "id": message.id,
@@ -66,12 +65,12 @@ async def fetch_latest():
                         "link": f"https://t.me/{canonical_username}/{message.id}",
                         "source": canonical_username,
                         "display_name": display_name,
-                        "media_url": media_url
+                        "media_url": media_url,
+                        "forwarded_to": "@hypewaveai"
                     }
                     collection.insert_one(doc)
                     print(f"✅ [{canonical_username}] {doc['text'][:60]}...")
 
-                    # 🟢 Forward the message to your news channel
                     await tg_client.forward_messages(
                         entity="@hypewaveai",
                         messages=message
@@ -80,7 +79,6 @@ async def fetch_latest():
         except Exception as e:
             print(f"[{username}] ❌ Failed to fetch messages: {e}")
 
-    # Clean up old messages
     now = datetime.now(timezone.utc)
     start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
 

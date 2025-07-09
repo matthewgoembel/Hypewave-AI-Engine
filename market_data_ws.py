@@ -68,7 +68,7 @@ async def run_signal_detection():
                 for alert in alerts:
                     print(f"✅ {alert}")
                 symbols_processed.add(clean_symbol)
-        await asyncio.sleep(30)
+        await asyncio.sleep(300)
 
 
 def get_latest_ohlc(symbol: str, interval: str):
