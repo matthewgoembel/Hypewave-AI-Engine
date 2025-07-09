@@ -13,7 +13,6 @@ from signal_engine import generate_alerts_for_symbol
 from market_data_ws import start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
-from telegram_tracker import loop_fetch
 import base64, random, os, re, threading
 from bson import ObjectId
 from forex_calender import router as forex_router
@@ -24,21 +23,16 @@ client = OpenAI()
 
 
 @asynccontextmanager
+@asynccontextmanager
 async def lifespan(app):
-    print("[Telegram Tracker] Starting background fetch loop...")
-    fetch_task = asyncio.create_task(loop_fetch())
-
-    # 🔹 Start your startup tasks here:
+    # 🟢 No more Telegram fetch task here.
+    # 🔹 Start your other startup tasks if needed:
     start_ws_listener()
 
     yield
 
-    print("[Telegram Tracker] Shutting down background fetch loop...")
-    fetch_task.cancel()
-    try:
-        await fetch_task
-    except asyncio.CancelledError:
-        print("[Telegram Tracker] Fetch loop cancelled cleanly.")
+    # 🔹 Clean shutdown of any other resources (if you have them)
+
 
 # ✅ Create FastAPI app *before* using it
 app = FastAPI(lifespan=lifespan)
