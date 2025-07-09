@@ -50,7 +50,8 @@ async def fetch_latest():
 
             async for message in tg_client.iter_messages(
                 username,
-                offset_date=today_start
+                limit=2,
+                reverse=True
             ):
                 media_url = None
                 if message.media and message.photo:
