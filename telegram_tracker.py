@@ -1,10 +1,11 @@
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from datetime import datetime, timezone
 from db import client
 import os, asyncio
 from telethon.errors import FloodWaitError
 from dotenv import load_dotenv
 from telethon.sessions import StringSession
+from pathlib import Path
 
 load_dotenv()
 
@@ -36,81 +37,49 @@ def get_display_name(entity):
         return entity.username
     return "Unnamed"
 
-async def fetch_latest():
-    print("[Telegram Tracker] Fetching latest messages...")
+@tg_client.on(events.NewMessage(chats=channel_usernames))
+async def handler(event):
+    message = event.message
+    canonical_username = event.chat.username
+    display_name = event.chat.title or canonical_username
 
-    # Define today's midnight UTC
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Check if already saved (very unlikely since it's a new event)
+    if collection.find_one({"id": message.id, "source": canonical_username}):
+        return
 
-    for username in channel_usernames:
+    media_url = None
+    if message.media and message.photo:
         try:
-            entity = await tg_client.get_entity(username)
-            display_name = get_display_name(entity)
-            canonical_username = entity.username if hasattr(entity, "username") else username
+            path = await tg_client.download_media(message.media, file="/mnt/data/")
+            if path:
+                media_url = f"/media/{os.path.basename(path)}"
+        except FloodWaitError as e:
+            print(f"[Media download error]: Wait {e.seconds} seconds (from {canonical_username})")
+            return
 
-            async for message in tg_client.iter_messages(
-                username,
-                limit=2,
-                reverse=True
-            ):
-                media_url = None
-                if message.media and message.photo:
-                    try:
-                        path = await tg_client.download_media(message.media, file="/mnt/data/")
-                        if path:
-                            media_url = f"/media/{os.path.basename(path)}"
-                    except FloodWaitError as e:
-                        print(f"[Media download error]: Wait {e.seconds} seconds (from {username})")
+    doc = {
+        "id": message.id,
+        "text": message.text,
+        "date": message.date.replace(tzinfo=timezone.utc),
+        "link": f"https://t.me/{canonical_username}/{message.id}",
+        "source": canonical_username,
+        "display_name": display_name,
+        "media_url": media_url,
+        "forwarded_to": "@hypewaveai"
+    }
+    collection.insert_one(doc)
+    print(f"✅ [{canonical_username}] {doc['text'][:60]}...")
 
-                if message.text and not collection.find_one({"id": message.id, "source": canonical_username}):
-                    doc = {
-                        "id": message.id,
-                        "text": message.text,
-                        "date": message.date.replace(tzinfo=timezone.utc),
-                        "link": f"https://t.me/{canonical_username}/{message.id}",
-                        "source": canonical_username,
-                        "display_name": display_name,
-                        "media_url": media_url,
-                        "forwarded_to": "@hypewaveai"
-                    }
-                    collection.insert_one(doc)
-                    print(f"✅ [{canonical_username}] {doc['text'][:60]}...")
+    await tg_client.forward_messages(
+        entity="@hypewaveai",
+        messages=message
+    )
 
-                    await tg_client.forward_messages(
-                        entity="@hypewaveai",
-                        messages=message
-                    )
-
-        except Exception as e:
-            print(f"[{username}] ❌ Failed to fetch messages: {e}")
-
-    now = datetime.now(timezone.utc)
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    deleted = collection.delete_many({"date": {"$lt": start_of_day}})
-    print(f"[Cleanup] Deleted {deleted.deleted_count} old records.")
-
-    from pathlib import Path
-
-    media_folder = Path("/mnt/data")
-    deleted_count = 0
-    for file in media_folder.iterdir():
-        if file.is_file():
-            mtime = datetime.fromtimestamp(file.stat().st_mtime, tz=timezone.utc)
-            if mtime < start_of_day:
-                file.unlink()
-                deleted_count += 1
-
-    print(f"[Cleanup] Deleted {deleted_count} old media files.")
-
-
-async def loop_fetch():
+async def main():
     print("[Telegram Tracker] Starting Telegram client...")
     await tg_client.start()
     print("[Telegram Tracker] Connected to Telegram.")
-    while True:
-        await fetch_latest()
-        await asyncio.sleep(10)
+    await tg_client.run_until_disconnected()
 
 if __name__ == "__main__":
-    asyncio.run(loop_fetch())
+    asyncio.run(main())
