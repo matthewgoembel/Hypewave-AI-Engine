@@ -38,28 +38,20 @@ def get_display_name(entity):
 
 async def fetch_latest():
     print("[Telegram Tracker] Fetching latest messages...")
+
+    # Define today's midnight UTC
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
     for username in channel_usernames:
         try:
             entity = await tg_client.get_entity(username)
             display_name = get_display_name(entity)
             canonical_username = entity.username if hasattr(entity, "username") else username
 
-            # 🟢 Check if we have any stored messages
-            last_saved = collection.find_one({"source": canonical_username}, sort=[("id", -1)])
-
-            if last_saved:
-                last_id = last_saved["id"]
-            else:
-                # No saved messages—get the latest message ID to avoid fetching everything
-                latest = await tg_client.get_messages(username, limit=1)
-                if latest:
-                    last_id = latest[0].id
-                    print(f"[{canonical_username}] 🆕 Starting from latest message ID {last_id}")
-                else:
-                    last_id = 0
-                    print(f"[{canonical_username}] ⚠️ No messages found in channel.")
-
-            async for message in tg_client.iter_messages(username, min_id=last_id):
+            async for message in tg_client.iter_messages(
+                username,
+                offset_date=today_start
+            ):
                 media_url = None
                 if message.media and message.photo:
                     try:
@@ -109,6 +101,7 @@ async def fetch_latest():
                 deleted_count += 1
 
     print(f"[Cleanup] Deleted {deleted_count} old media files.")
+
 
 async def loop_fetch():
     print("[Telegram Tracker] Starting Telegram client...")

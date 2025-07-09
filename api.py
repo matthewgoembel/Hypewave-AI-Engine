@@ -330,9 +330,6 @@ async def get_latest_signals(
     return {"latest_signals": response}
 
 
-
-    
-
 @app.get("/alerts/live")
 async def get_latest_alerts(limit: int = 5):
     from db import client as mongo_client
