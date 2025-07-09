@@ -23,7 +23,6 @@ client = OpenAI()
 
 
 @asynccontextmanager
-@asynccontextmanager
 async def lifespan(app):
     # 🟢 No more Telegram fetch task here.
     # 🔹 Start your other startup tasks if needed:
