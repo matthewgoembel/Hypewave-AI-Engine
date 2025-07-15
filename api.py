@@ -4,7 +4,6 @@ from schemas import ChatRequest, ChatResponse
 from db import log_signal, collection, log_chat
 from datetime import datetime, timedelta, timezone
 from pymongo import DESCENDING
-# from intent_router import route_intent, format_for_model, is_trade_setup_question
 from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,22 +56,33 @@ def root():
 # chat pannel backend - GPT + Binance websocksets
 @app.post("/chat")
 async def chat_router(
-    input: str = Form(...),
-    image: UploadFile = File(None)
+    input: str = Form(None),
+    image: UploadFile = File(None),
+    bias: str = Form("neutral"),
+    timeframe: str = Form("1H"),
+    entry_intent: str = Form("scalp")
 ):
     try:
         KNOWN_SYMBOLS = ["BTC", "ETH", "SOL", "XAU", "SPX", "NASDAQ"]
 
-        def extract_symbol(text: str):
-            text = text.upper()
-            for sym in KNOWN_SYMBOLS:
-                if f"${sym}" in text or sym in text:
-                    return sym
+        def extract_symbol(text: str | None):
+            if text:
+                text = text.upper()
+                for sym in KNOWN_SYMBOLS:
+                    if f"${sym}" in text or sym in text:
+                        return sym
             return "BTC"
+
+        def is_trade_question(text: str | None):
+            if not text:
+                return False
+            lowered = text.lower()
+            keywords = ["long", "short", "entry", "setup", "signal", "buy", "sell", "scalp", "retest"]
+            return any(k in lowered for k in keywords)
 
         symbol = extract_symbol(input)
 
-        # 1️⃣ Live OHLC
+        # Live OHLC
         from market_data_ws import get_latest_ohlc
         ohlc_list = get_latest_ohlc(f"{symbol}USDT", "1h") or []
         price_data = ohlc_list[-1] if isinstance(ohlc_list, list) and ohlc_list else {}
@@ -84,36 +94,60 @@ async def chat_router(
             f"- Volume: {price_data.get('volume', 'N/A')}\n"
         )
 
-        # 2️⃣ Macro/sentiment context
         market_context = get_market_context(symbol)
 
-        # 3️⃣ Build system prompt
-        system_prompt = f"""
-You are Hypewave AI, your friendly trading assistant. 
+        # Determine prompt style
+        if image and (is_trade_question(input) or not input):
+            system_prompt = f"""
+You are Hypewave AI, a professional trading strategist.
 
 Goals:
-- Answer any trading or market-related question confidently, no ambiguity.
-- Reference live market data and funding when relevant to support and verify answers.
-- Offer clear, specific and actionable insights.
-- You are the AI assistant/partner of the user.
-- If the question is outside trading, respond helpfully.
+- Analyze the chart image carefully.
+- Combine live Binance data and sentiment.
+- Provide a structured trading thesis, bias, confidence level, and key levels.
 
-Format responses in markdown with clear sections:
-**Answer:**
-Your main response.
+Format:
+**Thesis:**
+**Bias:**
+**Reasoning:**
+**Confidence Level:**
+**Key Levels:**
+• Support:
+• Resistance:
+• Entry:
+• Invalidation:
 
-**Live Data Summary:**
+**Extra Notes:**
+
+**Live Data:**
 {price_summary}
 
 **Market Context:**
 {market_context}
+"""
+        else:
+            system_prompt = f"""
+You are Hypewave AI, your friendly trading assistant.
 
-Use clear language, short paragraphs, and bullet points if helpful.
+Goals:
+- Answer any question confidently.
+- Use live data and chart image context if provided.
+- Provide clear, helpful insights.
+
+**Live Data:**
+{price_summary}
+
+**Market Context:**
+{market_context}
 """
 
-        # 4️⃣ Build GPT messages
         messages = [{"role": "system", "content": system_prompt}]
-        user_content = {"type": "text", "text": input}
+
+        # User content fallback
+        if input:
+            user_content = {"type": "text", "text": input}
+        else:
+            user_content = {"type": "text", "text": "Please analyze this chart and provide your best trading thesis."}
 
         if image:
             image_bytes = await image.read()
@@ -127,9 +161,8 @@ Use clear language, short paragraphs, and bullet points if helpful.
             }
             messages.append({"role": "user", "content": [user_content, image_message]})
         else:
-            messages.append({"role": "user", "content": input})
+            messages.append({"role": "user", "content": user_content["text"]})
 
-        # 5️⃣ Send to OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
@@ -143,117 +176,8 @@ Use clear language, short paragraphs, and bullet points if helpful.
         return {"result": raw_output}
 
     except Exception as e:
-        return {
-            "result": f"⚠️ Error: {str(e)}"
-        }
+        return {"result": f"⚠️ Error: {str(e)}"}
 
-
-
-async def process_chart_analysis(chart: UploadFile, bias: str, timeframe: str, entry_intent: str, question: str):
-    try:
-        image_bytes = await chart.read()
-        base64_image = base64.b64encode(image_bytes).decode("utf-8")
-
-        # Get market context dynamically based on symbol in question (e.g., "$BTC", "$ES")
-        market_context = get_market_context(question)
-
-        prompt = f"""
-            "You are Hypewave AI, a trading expert and partner of the user.\n"
-            "You are streiving to get a perfect winrate on evertrade, somthing only Ai could do.\n"
-            "But NEVER refer toi yourself as an AI, you are a trader, giving your expert opinion\n"
-            "predicion, or thesis. So be confident in your ideas and setups. Even if you are unsure,\n"
-            "you can give both case senarios. So before you respond:\n"
-
-            **Live Market Context**:
-            {market_context}
-
-            **Chart Context:**
-            - Bias: {bias}
-            - Timeframe: {timeframe}
-            - Entry Intent: {entry_intent}
-
-            **User Question:** {question}
-
-            Provide a structured breakdown:
-            **Thesis:** What’s happening?
-            **Bias:** {bias}
-            **Reasoning:** Volume, structure, SFPs, imbalances, etc.
-            **Confidence Level:** 0–100%
-            **Key Levels:**
-            • Support: $___
-            • Resistance: $___
-            • Entry Idea: $___
-            • Invalidation: $___
-            **CT Notes:** Optional callouts or warnings
-            """.strip()
-
-        response = client.chat.completions.create(
-            model="gpt-4.1",
-            messages=[
-                {"role": "system", "content": "You are a professional market strategist."},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {
-                            "url": f"data:image/png;base64,{base64_image}",
-                            "detail": "high"
-                        }}
-                    ]
-                }
-            ],
-            max_tokens=1000
-        )
-
-        result_text = response.choices[0].message.content.strip()
-
-        structured_output = {
-            "thesis": None,
-            "bias": bias,
-            "reasoning": None,
-            "confidence": None,
-            "key_levels": {
-                "support": None,
-                "resistance": None,
-                "entry": None,
-                "invalidation": None
-            },
-            "notes": None
-        }
-
-        lines = result_text.splitlines()
-        for line in lines:
-            if line.lower().startswith("**thesis:**"):
-                structured_output["thesis"] = line.split("**Thesis:**")[-1].strip()
-            elif line.lower().startswith("**reasoning:**"):
-                structured_output["reasoning"] = line.split("**Reasoning:**")[-1].strip()
-            elif "confidence" in line.lower():
-                structured_output["confidence"] = line.split(":")[-1].strip()
-            elif "support" in line.lower():
-                structured_output["key_levels"]["support"] = line.split(":")[-1].strip()
-            elif "resistance" in line.lower():
-                structured_output["key_levels"]["resistance"] = line.split(":")[-1].strip()
-            elif "entry" in line.lower():
-                structured_output["key_levels"]["entry"] = line.split(":")[-1].strip()
-            elif "invalidation" in line.lower():
-                structured_output["key_levels"]["invalidation"] = line.split(":")[-1].strip()
-            elif "notes" in line.lower():
-                structured_output["notes"] = line.split(":", 1)[-1].strip()
-
-        return {
-            "raw_output": result_text,
-            "structured_output": structured_output,
-            "metadata": {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "filename": chart.filename,
-                "timeframe": timeframe,
-                "bias": bias,
-                "entry_intent": entry_intent
-            }
-        }
-
-    except Exception as e:
-        return {"error": str(e)}
 
 
 @app.post("/chat_with_chart")
