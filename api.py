@@ -4,7 +4,7 @@ from schemas import ChatRequest, ChatResponse
 from db import log_signal, collection, log_chat
 from datetime import datetime, timedelta, timezone
 from pymongo import DESCENDING
-from intent_router import route_intent, format_for_model, is_trade_setup_question
+# from intent_router import route_intent, format_for_model, is_trade_setup_question
 from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
@@ -54,14 +54,13 @@ def root_head(request: Request):
 def root():
     return {"message": "Hypewave AI is live 🚀"}
 
+# chat pannel backend - GPT + Binance websocksets
 @app.post("/chat")
 async def chat_router(
     input: str = Form(...),
     image: UploadFile = File(None)
 ):
     try:
-        import re
-
         KNOWN_SYMBOLS = ["BTC", "ETH", "SOL", "XAU", "SPX", "NASDAQ"]
 
         def extract_symbol(text: str):
@@ -71,12 +70,6 @@ async def chat_router(
                     return sym
             return "BTC"
 
-        intent_data = route_intent(input)
-        task = format_for_model(intent_data)
-
-        if task["type"] != "openai":
-            return {"error": "Only OpenAI tasks are supported in this route."}
-
         symbol = extract_symbol(input)
 
         # 1️⃣ Live OHLC
@@ -85,26 +78,42 @@ async def chat_router(
         price_data = ohlc_list[-1] if isinstance(ohlc_list, list) and ohlc_list else {}
 
         price_summary = (
-            f"<b>Live Price Data for ${symbol}:</b><br>"
-            f"• Price: ${price_data.get('close', 'N/A')}<br>"
-            f"• Open: {price_data.get('open', 'N/A')} | High: {price_data.get('high', 'N/A')} | Low: {price_data.get('low', 'N/A')}<br>"
-            f"• Volume: {price_data.get('volume', 'N/A')}<br>"
+            f"**Live Price Data for ${symbol}:**\n"
+            f"- Price: ${price_data.get('close', 'N/A')}\n"
+            f"- Open: {price_data.get('open', 'N/A')} | High: {price_data.get('high', 'N/A')} | Low: {price_data.get('low', 'N/A')}\n"
+            f"- Volume: {price_data.get('volume', 'N/A')}\n"
         )
 
         # 2️⃣ Macro/sentiment context
-        market_context = get_market_context(input)
+        market_context = get_market_context(symbol)
 
-        # 3️⃣ Build prompt
-        system_prompt = (
-            f"{task['system_prompt']}\n\n"
-            f"{price_summary}\n"
-            f"<b>Market Context:</b><br>{market_context}\n\n"
-            f"🧠 Use bold headers, bullet points, and no dense paragraphs."
-        )
+        # 3️⃣ Build system prompt
+        system_prompt = f"""
+You are Hypewave AI, your friendly trading assistant. 
 
-        # 4️⃣ Build GPT request
+Goals:
+- Answer any trading or market-related question confidently, no ambiguity.
+- Reference live market data and funding when relevant to support and verify answers.
+- Offer clear, specific and actionable insights.
+- You are the AI assistant/partner of the user.
+- If the question is outside trading, respond helpfully.
+
+Format responses in markdown with clear sections:
+**Answer:**
+Your main response.
+
+**Live Data Summary:**
+{price_summary}
+
+**Market Context:**
+{market_context}
+
+Use clear language, short paragraphs, and bullet points if helpful.
+"""
+
+        # 4️⃣ Build GPT messages
         messages = [{"role": "system", "content": system_prompt}]
-        user_content = {"type": "text", "text": task["prompt"]}
+        user_content = {"type": "text", "text": input}
 
         if image:
             image_bytes = await image.read()
@@ -118,25 +127,26 @@ async def chat_router(
             }
             messages.append({"role": "user", "content": [user_content, image_message]})
         else:
-            messages.append({"role": "user", "content": task["prompt"]})
+            messages.append({"role": "user", "content": input})
 
+        # 5️⃣ Send to OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
-            max_tokens=1200
+            max_tokens=1500
         )
 
         raw_output = response.choices[0].message.content.strip()
 
         log_chat("demo", {"input": input}, {"result": raw_output, "source": "chat.analysis"})
 
-        return {"intent": intent_data["intent"], "result": raw_output}
+        return {"result": raw_output}
 
     except Exception as e:
         return {
-            "intent": "error",
-            "result": f"<b>⚠️ Error:</b><br>{str(e)}"
+            "result": f"⚠️ Error: {str(e)}"
         }
+
 
 
 async def process_chart_analysis(chart: UploadFile, bias: str, timeframe: str, entry_intent: str, question: str):
