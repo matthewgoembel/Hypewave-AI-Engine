@@ -18,7 +18,6 @@ channel_usernames = [
     "CryptoProUpdates",
     "TreeNewsFeed",
     "thekingsofsolana",
-    "cryptocurrency_media",
     "rektcapitalinsider"
 ]
 
