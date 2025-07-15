@@ -13,6 +13,7 @@ from signal_engine import generate_alerts_for_symbol
 from market_data_ws import start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
+from telegram_tracker import loop_fetch
 import base64, random, os, re, threading
 from bson import ObjectId
 from forex_calender import router as forex_router
@@ -24,14 +25,9 @@ client = OpenAI()
 
 @asynccontextmanager
 async def lifespan(app):
-    # 🟢 No more Telegram fetch task here.
-    # 🔹 Start your other startup tasks if needed:
     start_ws_listener()
 
     yield
-
-    # 🔹 Clean shutdown of any other resources (if you have them)
-
 
 # ✅ Create FastAPI app *before* using it
 app = FastAPI(lifespan=lifespan)
