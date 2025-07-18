@@ -24,6 +24,7 @@ collection = db["signals"]
 alerts_coll = db["alerts"]
 chats_coll = db["chats"]  # ✅ NEW collection for chats
 trades_review = db["trades_review"]  # ✅ NEW collection for chats
+users_coll = db["users"]
 
 # Logging functions
 def log_signal(user_id: str, input_data: dict, output_data: dict):
@@ -120,3 +121,22 @@ def log_feedback(signal_id: str, feedback: str):
         )
     except Exception as e:
         print(f"[❌ Feedback Logging Error] {e}")
+
+def get_user_by_email(email: str):
+    return users_coll.find_one({"email": email})
+
+def create_user_in_db(email: str, password_hash: str):
+    user = {
+        "email": email,
+        "password_hash": password_hash,
+        "created_at": datetime.utcnow(),
+        "preferences": {},
+        "sessions": []
+    }
+    result = users_coll.insert_one(user)
+    return str(result.inserted_id)
+
+def get_user_by_id(user_id: str):
+    from bson import ObjectId
+    return users_coll.find_one({"_id": ObjectId(user_id)})
+

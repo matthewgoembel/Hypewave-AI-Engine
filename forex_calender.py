@@ -1,83 +1,54 @@
-from fastapi import APIRouter
-from datetime import datetime, timezone
+import requests
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
+from datetime import datetime, timezone
+from fastapi import APIRouter
 
 router = APIRouter()
 
 @router.get("/forex/calendar/today")
-def get_forex_calendar():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto("https://www.forexfactory.com/calendar")
-        page.wait_for_selector("tr.calendar__row", timeout=15000)
-        html = page.content()
-        browser.close()
+def get_economic_calendar():
+    url = "https://www.investing.com/economic-calendar/"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+    }
 
-    soup = BeautifulSoup(html, "html.parser")
+    res = requests.get(url, headers=headers)
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    rows = soup.select("tr.calendar__row")
+    table = soup.find("table", {"id": "economicCalendarData"})
+    if not table:
+        return {"events": []}
+
+    rows = table.find_all("tr", {"event_row": True})
+    today = datetime.now(timezone.utc).strftime("%b %d")  # e.g., "Jul 18"
     events = []
 
-    today_str = datetime.now(timezone.utc).strftime("%a %b %-d").replace(" 0", " ")
-    print("Today string:", today_str)
-
-    current_date = None
-
     for row in rows:
-        print("======== NEW ROW ==========")
+        try:
+            date = row.get("event_timestamp")
+            if not date:
+                continue
 
-        time_el = row.select_one("td.calendar__time")
-        time_text = time_el.text.strip() if time_el else ""
-        print("Time text:", repr(time_text))
+            time_cell = row.find("td", {"class": "time"})
+            currency_cell = row.find("td", {"class": "left flagCur noWrap"})
+            impact_cell = row.find("td", {"class": "sentiment"})
+            event_cell = row.find("td", {"class": "event"})
 
-        date_td = row.select_one("td.calendar__cell--date span.date")
-        if date_td:
-            parts = [s.strip() for s in date_td.strings if s.strip()]
-            print("Date parts raw:", parts)
-            date_text = " ".join(" ".join(parts).split())
-            print("Computed date_text:", date_text)
-        else:
-            date_text = None
+            actual = row.find("td", {"class": "act"}).get_text(strip=True)
+            forecast = row.find("td", {"class": "fore"}).get_text(strip=True)
+            previous = row.find("td", {"class": "prev"}).get_text(strip=True)
 
-        if date_text:
-            current_date = date_text
-
-        print("Final current_date in row:", current_date)
-
-        if not current_date:
-            print("Skipping row because no current_date.")
+            events.append({
+                "date": datetime.fromtimestamp(int(date), tz=timezone.utc).strftime("%Y-%m-%d"),
+                "time": time_cell.get_text(strip=True) if time_cell else "",
+                "currency": currency_cell.get_text(strip=True) if currency_cell else "",
+                "impact": len(impact_cell.find_all("i")) if impact_cell else 0,  # 1-3 impact level
+                "detail": event_cell.get_text(strip=True) if event_cell else "",
+                "actual": actual,
+                "forecast": forecast,
+                "previous": previous
+            })
+        except Exception as e:
             continue
 
-        if current_date != today_str:
-            print(f"Skipping because '{current_date}' != '{today_str}'")
-            continue
-
-        currency = row.select_one("td.calendar__currency")
-        impact_span = row.select_one("td.calendar__impact span")
-        impact_level = (
-            impact_span["class"][1].replace("icon--impact-", "").capitalize()
-            if impact_span and len(impact_span["class"]) > 1
-            else ""
-        )
-        detail = row.select_one("td.calendar__event")
-        actual = row.select_one("td.calendar__actual")
-        forecast = row.select_one("td.calendar__forecast")
-        previous = row.select_one("td.calendar__previous")
-
-        event = {
-            "date": current_date,
-            "time": time_text,
-            "currency": currency.text.strip() if currency else "",
-            "impact": impact_level,
-            "detail": detail.text.strip() if detail else "",
-            "actual": actual.text.strip() if actual else "",
-            "forecast": forecast.text.strip() if forecast else "",
-            "previous": previous.text.strip() if previous else "",
-        }
-        print("Event added:", event)
-        events.append(event)
-
-    print("Total events:", len(events))
     return {"events": events}

@@ -1,7 +1,7 @@
-from fastapi import FastAPI, Query, UploadFile, File, Form, Body, Request, BackgroundTasks
+from fastapi import FastAPI, Query, UploadFile, File, Form, Body, Request, BackgroundTasks, Depends
 from dotenv import load_dotenv
 from schemas import ChatRequest, ChatResponse
-from db import log_signal, collection, log_chat
+from db import log_signal, collection, log_chat, chats_coll
 from datetime import datetime, timedelta, timezone
 from pymongo import DESCENDING
 from openai import OpenAI
@@ -9,13 +9,17 @@ from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
 from db import get_latest_news
 from signal_engine import generate_alerts_for_symbol
-from market_data_ws import start_ws_listener
+from market_data_ws import get_latest_ohlc, start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import base64, random, os, re, threading
 from bson import ObjectId
 from forex_calender import router as forex_router
 from contextlib import asynccontextmanager
+from auth_routes import router as auth_router
+from auth_utils import decode_access_token
+from auth_routes import get_current_user
+from pathlib import Path
 
 load_dotenv()
 client = OpenAI()
@@ -23,15 +27,20 @@ client = OpenAI()
 
 @asynccontextmanager
 async def lifespan(app):
-    start_ws_listener()
+    # start_ws_listener()
 
     yield
 
-# ✅ Create FastAPI app *before* using it
+# Create FastAPI app *before* using it
 app = FastAPI(lifespan=lifespan)
 
-# ✅ Include routers, middlewares, and mounts
+# Include routers, middlewares, and mounts
 app.include_router(forex_router)
+
+# Include login system
+app.include_router(auth_router)
+
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,8 +49,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# local image mount direcotry and relize
+#app.mount("/media", StaticFiles(directory="/mnt/data"), name="media")
 
-app.mount("/media", StaticFiles(directory="/mnt/data"), name="media")
+media_path = Path(__file__).resolve().parent / "media"
+media_path.mkdir(exist_ok=True)
+
+app.mount("/media", StaticFiles(directory=str(media_path)), name="media")
 
 @app.head("/")
 def root_head(request: Request):
@@ -55,34 +69,36 @@ def root():
 # chat pannel backend - GPT + Binance websocksets
 @app.post("/chat")
 async def chat_router(
-    input: str = Form(None),
+    request: Request,
+    input: str = Form(...),
     image: UploadFile = File(None),
     bias: str = Form("neutral"),
     timeframe: str = Form("1H"),
     entry_intent: str = Form("scalp")
 ):
     try:
+        # Determine if the user is authenticated
+        token_header = request.headers.get("authorization")
+        user_id = "guest"
+        if token_header:
+            token = token_header.replace("Bearer ", "")
+            payload = decode_access_token(token)
+            if payload:
+                user_id = payload.get("sub", "guest")
+
+        # Extract the symbol
         KNOWN_SYMBOLS = ["BTC", "ETH", "SOL", "XAU", "SPX", "NASDAQ"]
 
-        def extract_symbol(text: str | None):
-            if text:
-                text = text.upper()
-                for sym in KNOWN_SYMBOLS:
-                    if f"${sym}" in text or sym in text:
-                        return sym
+        def extract_symbol(text: str):
+            text = text.upper()
+            for sym in KNOWN_SYMBOLS:
+                if f"${sym}" in text or sym in text:
+                    return sym
             return "BTC"
-
-        def is_trade_question(text: str | None):
-            if not text:
-                return False
-            lowered = text.lower()
-            keywords = ["long", "short", "entry", "setup", "signal", "buy", "sell", "scalp", "retest"]
-            return any(k in lowered for k in keywords)
 
         symbol = extract_symbol(input)
 
         # Live OHLC
-        from market_data_ws import get_latest_ohlc
         ohlc_list = get_latest_ohlc(f"{symbol}USDT", "1h") or []
         price_data = ohlc_list[-1] if isinstance(ohlc_list, list) and ohlc_list else {}
 
@@ -95,69 +111,24 @@ async def chat_router(
 
         market_context = get_market_context(symbol)
 
-        # Determine prompt style
-        if is_trade_question(input):
-            system_prompt = f"""
-            You are Hypewave AI, a professional crypto trader.
+        system_prompt = f"""
+You are Hypewave AI, your friendly trading assistant.
 
-            Goals:
-            - Provide a decisive trade plan when asked about setups.
-            - Always give clear entries, stops, and targets.
-            - Avoid hedging or generic considerations.
-            - Speak confidently.
+Goals:
+- Answer any trading or market-related question confidently.
+- Reference live market data.
+- Offer clear and actionable insights.
+- Format responses in markdown with clear sections.
 
-            When asked for a setup, respond in this format:
+**Live Data Summary:**
+{price_summary}
 
-            **Trade Idea:**
-            Long or Short?
-
-            **Entry Price:**
-            Specific price or zone.
-
-            **Stop Loss:**
-            Exact invalidation level.
-
-            **Target:**
-            At least one profit target.
-
-            **Reasoning:**
-            Why you like this idea.
-
-            **Confidence:**
-            0–100%.
-
-            **Risk Management:**
-            Sizing and warnings.
-
-            **Live Data:**
-            {price_summary}
-
-            **Market Context:**
-            {market_context}
-            """
-        else:
-            system_prompt = f"""
-            You are Hypewave AI, a friendly trading assistant.
-
-            Goals:
-            - Answer any question accurately and confidently.
-            - Reference live market data if relevant.
-            - If the question is not about trading setups, provide clear and factual information.
-
-            **Live Data:**
-            {price_summary}
-
-            **Market Context:**
-            {market_context}
-            """
+**Market Context:**
+{market_context}
+"""
 
         messages = [{"role": "system", "content": system_prompt}]
-
-        # User content fallback
-        if input:
-            user_content = {"type": "text", "text": input}
-        else:
-            user_content = {"type": "text", "text": "Please analyze this chart and provide your best trading thesis."}
+        user_content = {"type": "text", "text": input}
 
         if image:
             image_bytes = await image.read()
@@ -171,7 +142,7 @@ async def chat_router(
             }
             messages.append({"role": "user", "content": [user_content, image_message]})
         else:
-            messages.append({"role": "user", "content": user_content["text"]})
+            messages.append({"role": "user", "content": input})
 
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -181,15 +152,44 @@ async def chat_router(
 
         raw_output = response.choices[0].message.content.strip()
 
-        log_chat("demo", {"input": input}, {"result": raw_output, "source": "chat.analysis"})
+        log_chat(user_id, {"input": input}, {"result": raw_output, "source": "chat.analysis"})
 
         return {"result": raw_output}
 
     except Exception as e:
         return {"result": f"⚠️ Error: {str(e)}"}
+    
+
+    
+@app.get("/chat/history")
+def get_chat_history(user=Depends(get_current_user)):
+    user_id = user["user_id"]
+
+    messages = list(
+        chats_coll
+        .find({"user_id": user_id})
+        .sort("created_at", -1)
+        .limit(20)
+    )
+    messages.reverse()
+
+    return [
+        {
+            "role": "user",
+            "text": m.get("input", {}).get("input", ""),
+            "timestamp": m.get("created_at").isoformat() if m.get("created_at") else None
+        }
+        if m.get("input")
+        else {
+            "role": "ai",
+            "text": m.get("output", {}).get("result", ""),
+            "timestamp": m.get("created_at").isoformat() if m.get("created_at") else None
+        }
+        for m in messages
+    ]
 
 
-
+"""
 @app.post("/chat_with_chart")
 async def chat_with_chart(
     question: str = Form(...),
@@ -199,6 +199,7 @@ async def chat_with_chart(
     entry_intent: str = Form("scalp")
 ):
     return await process_chart_analysis(chart, bias, timeframe, entry_intent, question)
+"""
 
 @app.post("/signals/manual-scan")
 async def generate_alerts(symbols: list[str] = Body(...)):
@@ -209,6 +210,8 @@ async def generate_alerts(symbols: list[str] = Body(...)):
             all_alerts[symbol] = alerts
     return {"generated_alerts": all_alerts}
 
+
+"""
 @app.post("/analyze_chart")
 async def analyze_chart(
     chart: UploadFile = File(...),
@@ -218,9 +221,11 @@ async def analyze_chart(
     question: str = Form("What is your technical analysis?")
 ):
     return await process_chart_analysis(chart, bias, timeframe, entry_intent, question)
+"""
+
 
 @app.get("/news/latest")
-async def fetch_news(limit: int = 10):
+async def fetch_news(limit: int = 20):
     try:
         return get_latest_news(limit=limit)
     except Exception as e:

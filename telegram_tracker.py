@@ -23,6 +23,11 @@ channel_usernames = [
 
 collection = client["hypewave"]["telegram_news"]
 
+# ✅ Define local media directory
+media_path = Path(__file__).resolve().parent / "media"
+media_path.mkdir(exist_ok=True)
+
+
 tg_client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
 def get_display_name(entity):
@@ -42,20 +47,32 @@ async def handler(event):
     canonical_username = event.chat.username
     display_name = event.chat.title or canonical_username
 
-    # Check if already saved (very unlikely since it's a new event)
+    print(f"📨 New message from @{canonical_username}: {message.text[:60] if message.text else '[no text]'}")
+
+    # Check if already saved
     if collection.find_one({"id": message.id, "source": canonical_username}):
+        print("⚠️ Duplicate message — skipping")
         return
 
     media_url = None
-    if message.media and message.photo:
+    print(f"📥 New message from @{canonical_username} — ID: {message.id}")
+    print("  Has media:", bool(message.media))
+    print("  Is photo:", bool(message.photo))
+    # ✅ Attempt to download any media
+    if message.media:
         try:
-            path = await tg_client.download_media(message.media, file="/mnt/data/")
-            if path:
-                media_url = f"/media/{os.path.basename(path)}"
-        except FloodWaitError as e:
-            print(f"[Media download error]: Wait {e.seconds} seconds (from {canonical_username})")
-            return
+            print("🟡 Detected media, attempting download...")
+            file_path = await tg_client.download_media(message.media, file=str(media_path))
+            if file_path:
+                filename = Path(file_path).name
+                media_url = f"/media/{filename}"
+                print(f"✅ Media saved to: {file_path}")
+            else:
+                print("❌ `download_media` returned None.")
+        except Exception as e:
+            print(f"❌ Error during media download: {e}")
 
+    # ✅ Save message to MongoDB
     doc = {
         "id": message.id,
         "text": message.text,
@@ -66,8 +83,9 @@ async def handler(event):
         "media_url": media_url,
         "forwarded_to": "@hypewaveai"
     }
+
     collection.insert_one(doc)
-    print(f"✅ [{canonical_username}] {doc['text'][:60]}...")
+    print(f"📥 Inserted into MongoDB: {doc['text'][:60]}...")
 
     await tg_client.forward_messages(
         entity="@hypewaveai",
