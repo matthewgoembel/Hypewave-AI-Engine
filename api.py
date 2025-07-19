@@ -14,12 +14,13 @@ from fastapi.staticfiles import StaticFiles
 import asyncio
 import base64, random, os, re, threading
 from bson import ObjectId
-from forex_calender import router as forex_router
+from economic_scraper import scrape_marketwatch_calendar
 from contextlib import asynccontextmanager
 from auth_routes import router as auth_router
 from auth_utils import decode_access_token
 from auth_routes import get_current_user
 from pathlib import Path
+
 
 load_dotenv()
 client = OpenAI()
@@ -35,7 +36,7 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 
 # Include routers, middlewares, and mounts
-app.include_router(forex_router)
+# app.include_router(forex_router)
 
 # Include login system
 app.include_router(auth_router)
@@ -211,17 +212,13 @@ async def generate_alerts(symbols: list[str] = Body(...)):
     return {"generated_alerts": all_alerts}
 
 
-"""
-@app.post("/analyze_chart")
-async def analyze_chart(
-    chart: UploadFile = File(...),
-    bias: str = Form(...),
-    timeframe: str = Form(...),
-    entry_intent: str = Form(...),
-    question: str = Form("What is your technical analysis?")
-):
-    return await process_chart_analysis(chart, bias, timeframe, entry_intent, question)
-"""
+@app.get("/economic-calendar")
+def get_economic_calendar():
+    try:
+        data = scrape_marketwatch_calendar()
+        return {"calendar": data}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/news/latest")
