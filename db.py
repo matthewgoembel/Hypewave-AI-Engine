@@ -27,13 +27,16 @@ trades_review = db["trades_review"]  # ✅ NEW collection for chats
 users_coll = db["users"]
 
 # Logging functions
-def log_signal(user_id: str, input_data: dict, output_data: dict):
+def log_signal(user_id: str, input_data: dict, output_data: dict, extra_meta: dict = None):
     entry = {
         "user_id": user_id,
         "input": input_data,
         "output": output_data,
         "created_at": datetime.now(timezone.utc)
     }
+
+    if extra_meta:
+        entry.update(extra_meta)
 
     unique_filter = {
         "user_id": user_id,
@@ -44,6 +47,7 @@ def log_signal(user_id: str, input_data: dict, output_data: dict):
     }
 
     collection.update_one(unique_filter, {"$set": entry}, upsert=True)
+
 
 
 def log_alert(user_id: str, input_data: dict, output_data: dict):

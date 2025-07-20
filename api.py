@@ -20,6 +20,7 @@ from auth_routes import router as auth_router
 from auth_utils import decode_access_token
 from auth_routes import get_current_user
 from pathlib import Path
+from winrate_checker import get_winrate  # ✅ Added for winrate route
 
 
 load_dotenv()
@@ -28,8 +29,7 @@ client = OpenAI()
 
 @asynccontextmanager
 async def lifespan(app):
-    # start_ws_listener()
-
+    start_ws_listener() # Start signal engine
     yield
 
 # Create FastAPI app *before* using it
@@ -40,8 +40,6 @@ app = FastAPI(lifespan=lifespan)
 
 # Include login system
 app.include_router(auth_router)
-
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -301,3 +299,9 @@ async def record_signal_feedback(
 
     except Exception as e:
         return {"error": str(e)}
+
+from winrate_checker import get_winrate
+
+@app.get("/signals/winrate")
+def get_global_winrate():
+    return get_winrate()

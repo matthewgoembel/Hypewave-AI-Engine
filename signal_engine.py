@@ -1,21 +1,18 @@
-# signal_engine.py
+# === signal_engine.py (refactored) ===
 
 import logging
 import re
 from datetime import datetime, timezone, timedelta
-from typing import List
+from typing import List, Optional
 from openai import OpenAI
 
 from db import log_signal, client as mongo_client
 from market_data_ws import get_latest_ohlc
 
 client = OpenAI()
-
-# Logging configuration
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Optional: attach a console handler if running standalone
 if not logger.hasHandlers():
     handler = logging.StreamHandler()
     formatter = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
@@ -24,125 +21,105 @@ if not logger.hasHandlers():
 
 TIMEFRAMES = ["5m", "15m", "1h", "4h"]
 CONFIDENCE_THRESHOLD = 60
-
-# Reuse Mongo collection
 signals_coll = mongo_client["hypewave"]["signals"]
+signal_control_coll = mongo_client["hypewave"]["signal_control"]
 
+def should_skip_symbol(symbol: str) -> bool:
+    entry = signal_control_coll.find_one({"symbol": symbol})
+    now = datetime.now(timezone.utc)
+    return entry and entry.get("next_check_at") and now < entry["next_check_at"]
+
+def update_signal_control(symbol: str, status: str, notes: str, next_check_minutes: int):
+    now = datetime.now(timezone.utc)
+    control_entry = {
+        "symbol": symbol,
+        "last_check": now,
+        "next_check_at": now + timedelta(minutes=next_check_minutes),
+        "last_status": status,
+        "notes": notes
+    }
+    signal_control_coll.update_one(
+        {"symbol": symbol},
+        {"$set": control_entry},
+        upsert=True
+    )
 
 def generate_alerts_for_symbol(symbol: str) -> List[str]:
     alerts = set()
-    candles_by_tf = {}
+    if should_skip_symbol(symbol):
+        logger.info("[⏳] Skipping %s — still in cooldown.", symbol)
+        return []
 
+    candles_by_tf = {}
     for tf in TIMEFRAMES:
         candles = get_latest_ohlc(f"{symbol}USDT", tf)
-        if not candles:
-            logger.warning("[⚠️] No candles for %s %s", symbol, tf)
-            continue
-        if len(candles) < 10:
-            logger.warning("[⚠️] Not enough candles (%d) for %s %s", len(candles), symbol, tf)
+        if not candles or len(candles) < 10:
+            logger.warning("[⚠️] Insufficient candles for %s %s", symbol, tf)
             continue
         candles_by_tf[tf] = candles
 
     if not candles_by_tf:
-        logger.warning("[⚠️] No valid candles collected for %s.", symbol)
-        return list(alerts)
-
-    logger.info("[🧠 Evaluating multi-timeframe setup] %s", symbol)
+        return []
 
     try:
-        trade = evaluate_multi_timeframe_opportunity(symbol, candles_by_tf)
-        if not trade:
-            logger.info("[❌] No confident trade returned.")
-            return list(alerts)
+        result = evaluate_trade_opportunity(symbol, candles_by_tf)
+        if result["trade"] == "NONE":
+            logger.info("[🛑] No trade for %s. Next check in %s min.", symbol, result["next_check"])
+            update_signal_control(symbol, "no_trade", result["thesis"], result["next_check"])
+            return []
 
-        # Check for duplicate recent signals (same trade type within 5 min and ~0.2% entry)
         recent = signals_coll.find_one(
-            {
-                "input.symbol": symbol,
-                "output.trade": trade["trade"],
-            },
+            {"input.symbol": symbol, "output.trade": result["trade"]},
             sort=[("created_at", -1)]
         )
 
         skip_due_to_duplicate = False
         if recent:
             last_entry = recent["output"].get("entry")
-            last_time = recent["created_at"]
-
-            if last_time.tzinfo is None:
-                last_time = last_time.replace(tzinfo=timezone.utc)
-
+            last_time = recent["created_at"].replace(tzinfo=timezone.utc)
             age_minutes = (datetime.now(timezone.utc) - last_time).total_seconds() / 60
-            is_recent = age_minutes < 5
-            is_close_price = (
-                isinstance(last_entry, (int, float)) and
-                isinstance(trade["entry"], (int, float)) and
-                abs(trade["entry"] - last_entry) / last_entry * 100 < 0.2
-            )
-
-            if is_recent and is_close_price:
-                skip_due_to_duplicate = True
+            close_price = abs(result["entry"] - last_entry) / last_entry * 100 < 0.2 if last_entry and result["entry"] else False
+            skip_due_to_duplicate = age_minutes < 5 and close_price
 
         if skip_due_to_duplicate:
-            logger.info("[⚠️] Skipping duplicate signal.")
-            return list(alerts)
+            logger.info("[⚠️] Duplicate trade skipped for %s.", symbol)
+            return []
 
-        # Log signal
-        msg = (
-            f"${symbol} | {trade['trade']} | MULTI | "
-            f"Entry: {trade['entry']} | Conf: {trade['confidence']}"
-        )
-        log_signal(
-            "partner-ai",
-            {"symbol": symbol},
-            {
-                "result": msg,
-                "source": "AI Multi-Timeframe Engine",
-                "timeframe": "multi",
-                "confidence": trade["confidence"],
-                "entry": trade["entry"],
-                "sl": trade["sl"],
-                "tp": trade["tp"],
-                "thesis": trade["thesis"],
-                "trade": trade["trade"]
-            }
-        )
-        alerts.add(msg)
-        logger.info("[✅ TRADE] %s", trade)
+        log_signal("partner-ai", {"symbol": symbol}, {
+            "result": f"${symbol} | {result['trade']} | {result['timeframe']} | Entry: {result['entry']} | Conf: {result['confidence']}",
+            "source": "AI Multi-Timeframe Engine",
+            "timeframe": result["timeframe"],
+            "confidence": result["confidence"],
+            "entry": result["entry"],
+            "sl": result["sl"],
+            "tp": result["tp"],
+            "thesis": result["thesis"],
+            "trade": result["trade"]
+        }, extra_meta={"status": "OPEN"})
 
-        # Clean up old signals
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        deleted = signals_coll.delete_many({"created_at": {"$lt": cutoff}})
-        if deleted.deleted_count > 0:
-            logger.info("[🧹] Deleted %d old signals.", deleted.deleted_count)
+        update_signal_control(symbol, "trade", result["thesis"], result["next_check"])
+        alerts.add(result["thesis"])
 
     except Exception as e:
-        logger.exception("[❌ Error processing multi-timeframe for %s]", symbol)
+        logger.exception("[❌ Error evaluating signal for %s]", symbol)
 
     return list(alerts)
 
-
-
-def evaluate_multi_timeframe_opportunity(symbol, candles_by_tf) -> dict:
-    from db import trades_review
-
+def evaluate_trade_opportunity(symbol: str, candles_by_tf: dict) -> dict:
     prompt = f"""
-You are a professional trader. Analyze the following OHLC candles across multiple timeframes (4h, 1h, 15m, 5m) and determine the single highest-probability trade setup.
+You are a professional AI market analyst. Review these OHLC candles across 5m, 15m, 1h, and 4h timeframes. Identify the best high-probability trade if one exists.
+Respond ONLY with swing or scalp trades worth taking, or NONE if the market is consolidating.
 
-Timeframes and candles:
-{candles_by_tf}
-
-Respond ONLY if there is a setup with >{CONFIDENCE_THRESHOLD}% probability.
-
-🎯 Respond EXACTLY in this format:
-
-**Trade:** LONG or SHORT
-**Confidence:** [0–100]
-**Entry:** [price]
-**Stop Loss:** [price]
-**Take Profit:** [price]
-**Thesis:** [1–2 sentences why]
-""".strip()
+Use this exact format:
+**Trade:** LONG / SHORT / NONE  
+**Confidence:** [0-100]  
+**Timeframe:** 5m / 15m / 1h / 4h / multi  
+**Entry:** [price or N/A]  
+**Stop Loss:** [price or N/A]  
+**Take Profit:** [price or N/A]  
+**Next Check In Minutes:** [e.g. 12, 30, 240]  
+**Thesis:** [brief rationale]
+""".strip() + f"\n\n{candles_by_tf}"
 
     response = client.chat.completions.create(
         model="gpt-4o",
@@ -150,75 +127,32 @@ Respond ONLY if there is a setup with >{CONFIDENCE_THRESHOLD}% probability.
             {"role": "system", "content": "You are a highly accurate trading assistant."},
             {"role": "user", "content": prompt}
         ],
-        max_tokens=700
+        max_tokens=800
     )
 
     raw = response.choices[0].message.content.strip()
-    logger.info("[🔍 GPT Raw Output] %s", raw)
+    logger.info("[GPT] %s", raw)
 
-    if not raw or "confidence" not in raw.lower():
-        trades_review.insert_one({
-            "symbol": symbol,
-            "timeframe": "multi",
-            "raw_output": raw,
-            "parsed_trade": None,
-            "accepted": False,
-            "timestamp": datetime.now(timezone.utc)
-        })
-        return None
+    def extract(pattern):
+        match = re.search(pattern, raw, re.IGNORECASE)
+        return match.group(1).strip() if match else None
 
-    trade = {
-        "trade": "N/A",
-        "confidence": 0,
-        "entry": "—",
-        "sl": "—",
-        "tp": "—",
-        "thesis": "—"
+    trade = extract(r"\*\*Trade:\*\*\s*(LONG|SHORT|NONE)") or "NONE"
+    confidence = int(extract(r"\*\*Confidence:\*\*\s*(\d+)") or 0)
+    timeframe = extract(r"\*\*Timeframe:\*\*\s*(\w+)") or "multi"
+    entry = float(extract(r"\*\*Entry:\*\*\s*([\d\.]+)") or 0)
+    sl = float(extract(r"\*\*Stop Loss:\*\*\s*([\d\.]+)") or 0)
+    tp = float(extract(r"\*\*Take Profit:\*\*\s*([\d\.]+)") or 0)
+    next_check = int(extract(r"\*\*Next Check In Minutes:\*\*\s*(\d+)") or 60)
+    thesis = extract(r"\*\*Thesis:\*\*\s*(.+)") or "No reason provided."
+
+    return {
+        "trade": trade.upper(),
+        "confidence": confidence,
+        "timeframe": timeframe,
+        "entry": entry,
+        "sl": sl,
+        "tp": tp,
+        "next_check": next_check,
+        "thesis": thesis
     }
-
-    try:
-        trade_match = re.search(r"\*\*Trade:\*\*\s*(LONG|SHORT)", raw, re.IGNORECASE)
-        conf_match = re.search(r"\*\*Confidence:\*\*\s*(\d+)", raw, re.IGNORECASE)
-        entry_match = re.search(r"\*\*Entry:\*\*\s*([\d\.]+)", raw, re.IGNORECASE)
-        sl_match = re.search(r"\*\*Stop Loss:\*\*\s*([\d\.]+)", raw, re.IGNORECASE)
-        tp_match = re.search(r"\*\*Take Profit:\*\*\s*([\d\.]+)", raw, re.IGNORECASE)
-        thesis_match = re.search(r"\*\*Thesis:\*\*\s*(.+)", raw, re.IGNORECASE)
-
-        if trade_match:
-            trade["trade"] = trade_match.group(1).upper()
-        if conf_match:
-            trade["confidence"] = int(conf_match.group(1))
-        if entry_match:
-            trade["entry"] = float(entry_match.group(1))
-        if sl_match:
-            trade["sl"] = float(sl_match.group(1))
-        if tp_match:
-            trade["tp"] = float(tp_match.group(1))
-        if thesis_match:
-            trade["thesis"] = thesis_match.group(1).strip()
-    except Exception as e:
-        logger.exception("[❌ Parsing error]")
-        trades_review.insert_one({
-            "symbol": symbol,
-            "timeframe": "multi",
-            "raw_output": raw,
-            "parsed_trade": None,
-            "accepted": False,
-            "timestamp": datetime.now(timezone.utc)
-        })
-        return None
-
-    trades_review.insert_one({
-        "symbol": symbol,
-        "timeframe": "multi",
-        "raw_output": raw,
-        "parsed_trade": trade,
-        "accepted": trade["confidence"] and trade["confidence"] >= CONFIDENCE_THRESHOLD,
-        "timestamp": datetime.now(timezone.utc)
-    })
-
-    if trade["confidence"] and trade["confidence"] >= CONFIDENCE_THRESHOLD:
-        return trade
-    else:
-        logger.info("[⚠️ Discarded Low-Confidence Trade] %s", trade)
-        return None
