@@ -27,7 +27,13 @@ signal_control_coll = mongo_client["hypewave"]["signal_control"]
 def should_skip_symbol(symbol: str) -> bool:
     entry = signal_control_coll.find_one({"symbol": symbol})
     now = datetime.now(timezone.utc)
-    return entry and entry.get("next_check_at") and now < entry["next_check_at"]
+
+    next_check = entry.get("next_check_at") if entry else None
+    if next_check and next_check.tzinfo is None:
+        next_check = next_check.replace(tzinfo=timezone.utc)
+
+    return next_check and now < next_check
+
 
 def update_signal_control(symbol: str, status: str, notes: str, next_check_minutes: int):
     now = datetime.now(timezone.utc)
