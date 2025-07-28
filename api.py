@@ -231,22 +231,20 @@ async def fetch_news(limit: int = 20):
 @app.get("/signals/latest")
 async def get_latest_signals(
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, le=50),
+    limit: int = Query(24, le=50),  # ⬅️ Default is now 24
     min_confidence: int = Query(60, ge=0, le=100)
 ):
     from db import client as mongo_client
     signals_coll = mongo_client["hypewave"]["signals"]
 
-    # Define cutoff as 24 hours ago
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    # Fetch recent signals sorted by most recent
+    cursor = signals_coll.find(
+        {
+            "output.source": "AI Multi-Timeframe Engine",
+            "output.confidence": {"$gte": min_confidence}
+        }
+    ).sort("created_at", -1).skip(skip).limit(limit)
 
-    base_query = {
-        "output.source": "AI Candle Engine",
-        "output.confidence": {"$gte": min_confidence},
-        "created_at": {"$gte": cutoff}
-    }
-
-    cursor = signals_coll.find(base_query).sort("created_at", DESCENDING).skip(skip).limit(limit)
     results = list(cursor)
 
     response = [
@@ -261,6 +259,7 @@ async def get_latest_signals(
     ]
 
     return {"latest_signals": response}
+
 
 
 @app.get("/alerts/live")

@@ -149,8 +149,12 @@ Use this exact format:
     entry = float(extract(r"\*\*Entry:\*\*\s*([\d\.]+)") or 0)
     sl = float(extract(r"\*\*Stop Loss:\*\*\s*([\d\.]+)") or 0)
     tp = float(extract(r"\*\*Take Profit:\*\*\s*([\d\.]+)") or 0)
-    next_check = int(extract(r"\*\*Next Check In Minutes:\*\*\s*(\d+)") or 60)
+    # next_check = int(extract(r"\*\*Next Check In Minutes:\*\*\s*(\d+)") or 60)
     thesis = extract(r"\*\*Thesis:\*\*\s*(.+)") or "No reason provided."
+    next_check = int(extract(r"\*\*Next Check In Minutes:\*\*\s*(\d+)") or 60)
+    # 🔒 Enforce minimum of 60 minutes
+    if next_check < 60:
+        next_check = 60
 
     return {
         "trade": trade.upper(),
