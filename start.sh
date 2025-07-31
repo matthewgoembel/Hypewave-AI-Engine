@@ -6,4 +6,4 @@ echo "🚀 Starting Hypewave AI backend..."
 uvicorn api:app --host 0.0.0.0 --port 10000 &
 
 # Start Telegram live feed in the foreground
-# python telegram_tracker.py
+python telegram_tracker.py

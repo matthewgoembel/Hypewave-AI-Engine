@@ -39,7 +39,7 @@ app = FastAPI(lifespan=lifespan)
 # app.include_router(forex_router)
 
 # Include login system
-app.include_router(auth_router)
+# app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,
