@@ -134,7 +134,7 @@ def create_user_in_db(email: str, password_hash: str, extra: dict = {}):
     user = {
         "email": email,
         "password_hash": password_hash,
-        "created_at": datetime.now(datetime.timezone.utc),
+        "created_at": datetime.now(timezone.utc),
         "preferences": {},
         "sessions": [],
         "login_method": extra.get("login_method", "email"),
