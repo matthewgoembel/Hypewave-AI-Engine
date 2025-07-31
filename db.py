@@ -151,7 +151,6 @@ def get_user_by_id(user_id: str):
 def update_user_last_seen(user_id: str):
     users_coll.update_one(
         {"_id": ObjectId(user_id)},
-        {"$set": {"last_seen": datetime.utcnow()}}
+        {"$set": {"last_seen": datetime.now(timezone.utc)}}
     )
-
 
