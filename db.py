@@ -1,6 +1,7 @@
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from datetime import datetime, timezone
+from bson import ObjectId
 from dotenv import load_dotenv
 import os
 
@@ -129,13 +130,16 @@ def log_feedback(signal_id: str, feedback: str):
 def get_user_by_email(email: str):
     return users_coll.find_one({"email": email})
 
-def create_user_in_db(email: str, password_hash: str):
+def create_user_in_db(email: str, password_hash: str, extra: dict = {}):
     user = {
         "email": email,
         "password_hash": password_hash,
-        "created_at": datetime.utcnow(),
+        "created_at": datetime.now(datetime.timezone.utc),
         "preferences": {},
-        "sessions": []
+        "sessions": [],
+        "login_method": extra.get("login_method", "email"),
+        "username": extra.get("username", email.split("@")[0]),
+        "avatar_url": extra.get("avatar_url", ""),
     }
     result = users_coll.insert_one(user)
     return str(result.inserted_id)
@@ -143,4 +147,11 @@ def create_user_in_db(email: str, password_hash: str):
 def get_user_by_id(user_id: str):
     from bson import ObjectId
     return users_coll.find_one({"_id": ObjectId(user_id)})
+
+def update_user_last_seen(user_id: str):
+    users_coll.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"last_seen": datetime.utcnow()}}
+    )
+
 
