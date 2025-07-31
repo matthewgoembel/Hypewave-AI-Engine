@@ -211,12 +211,21 @@ async def generate_alerts(symbols: list[str] = Body(...)):
 
 
 @app.get("/economic-calendar")
-def get_economic_calendar():
-    try:
-        data = scrape_marketwatch_calendar()
-        return {"calendar": data}
-    except Exception as e:
-        return {"error": str(e)}
+def get_weekly_calendar(offset: int = 0):
+    """
+    offset = 0 => This Week
+    offset = 1 => Next Week
+    offset = -1 => Last Week
+    """
+    from db import client as mongo_client
+    calendar_coll = mongo_client["hypewave"]["calendar_cache"]
+
+    now = datetime.now(timezone.utc)
+    monday = now - timedelta(days=now.weekday())
+    target_week = (monday + timedelta(weeks=offset)).date().isoformat()
+
+    doc = calendar_coll.find_one({"week_of": target_week})
+    return {"calendar": doc["calendar"] if doc else []}
 
 
 @app.get("/news/latest")

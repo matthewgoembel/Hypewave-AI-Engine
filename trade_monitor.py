@@ -6,7 +6,7 @@ from market_data_ws import get_latest_ohlc
 from winrate_checker import update_winrate
 
 # Connect to Mongo
-client = MongoClient("mongodb://localhost:27017/")  # Replace with your actual URI
+client = MongoClient("mongodb+srv://HypewaveAI:hypewave123@hypwavecluster1.gx7dgib.mongodb.net/?retryWrites=true&w=majority&appName=HypwaveCluster1")  # Replace with your actual URI
 signals = client["hypewave"]["signals"]
 
 def monitor_open_trades():

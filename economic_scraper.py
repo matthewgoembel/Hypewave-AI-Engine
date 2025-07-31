@@ -2,6 +2,13 @@
 
 import requests
 from bs4 import BeautifulSoup
+from datetime import datetime, timedelta, timezone
+from pymongo import MongoClient
+import os
+import dotenv
+
+dotenv.load_dotenv()
+MONGO_URI = os.getenv("MONGO_DB_URI")
 
 def scrape_marketwatch_calendar():
     url = "https://www.marketwatch.com/economy-politics/calendar"
@@ -70,7 +77,22 @@ def scrape_marketwatch_calendar():
 
     return output
 
+
 if __name__ == "__main__":
-    import json
     calendar = scrape_marketwatch_calendar()
-    print(json.dumps(calendar, indent=2))
+
+    # Calculate start of this week (Monday)
+    now = datetime.now(timezone.utc)
+    monday = now - timedelta(days=now.weekday())
+    week_of = monday.date().isoformat()
+
+    # Push to MongoDB
+    client = MongoClient(MONGO_URI)
+    calendar_coll = client["hypewave"]["calendar_cache"]
+    calendar_coll.insert_one({
+        "week_of": week_of,
+        "calendar": calendar,
+        "scraped_at": now
+    })
+
+    print(f"✅ Scraped and stored calendar for week of {week_of}")
