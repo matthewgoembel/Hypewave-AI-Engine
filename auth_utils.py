@@ -1,7 +1,7 @@
 # auth_utils.py
 
 # JWT + hashing + Oauth option later
-"""
+
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
@@ -34,4 +34,4 @@ def decode_access_token(token: str):
         return payload
     except JWTError:
         return None
-"""
+

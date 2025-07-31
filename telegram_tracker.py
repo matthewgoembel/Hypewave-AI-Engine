@@ -6,6 +6,8 @@ from telethon.errors import FloodWaitError
 from dotenv import load_dotenv
 from telethon.sessions import StringSession
 from pathlib import Path
+import faulthandler
+faulthandler.enable()
 
 load_dotenv()
 
@@ -49,30 +51,26 @@ async def handler(event):
 
     print(f"📨 New message from @{canonical_username}: {message.text[:60] if message.text else '[no text]'}")
 
-    # Check if already saved
+    # Check for duplicate
     if collection.find_one({"id": message.id, "source": canonical_username}):
         print("⚠️ Duplicate message — skipping")
         return
 
     media_url = None
-    print(f"📥 New message from @{canonical_username} — ID: {message.id}")
-    print("  Has media:", bool(message.media))
-    print("  Is photo:", bool(message.photo))
-    # ✅ Attempt to download any media
     if message.media:
         try:
-            print("🟡 Detected media, attempting download...")
+            print("🟡 Media detected — attempting download...")
             file_path = await tg_client.download_media(message.media, file=str(media_path))
             if file_path:
                 filename = Path(file_path).name
                 media_url = f"/media/{filename}"
                 print(f"✅ Media saved to: {file_path}")
             else:
-                print("❌ `download_media` returned None.")
+                print("❌ `download_media` returned None")
         except Exception as e:
-            print(f"❌ Error during media download: {e}")
+            print(f"❌ Media download error: {e}")
 
-    # ✅ Save message to MongoDB
+    # Save to MongoDB
     doc = {
         "id": message.id,
         "text": message.text,
@@ -80,23 +78,19 @@ async def handler(event):
         "link": f"https://t.me/{canonical_username}/{message.id}",
         "source": canonical_username,
         "display_name": display_name,
-        "media_url": media_url,
-        "forwarded_to": "@hypewaveai"
+        "media_url": media_url
     }
 
     collection.insert_one(doc)
-    print(f"📥 Inserted into MongoDB: {doc['text'][:60]}...")
+    print(f"📥 Inserted message ID {message.id} into MongoDB.")
 
-    await tg_client.forward_messages(
-        entity="@hypewaveai",
-        messages=message
-    )
 
 async def main():
     print("[Telegram Tracker] Starting Telegram client...")
     await tg_client.start()
-    print("[Telegram Tracker] Connected to Telegram.")
+    print("[Telegram Tracker] Connected.")
     await tg_client.run_until_disconnected()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
