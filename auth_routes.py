@@ -117,17 +117,21 @@ def update_password(data: dict = Body(...), user=Depends(get_current_user)):
 
 @router.post("/me/avatar")
 async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    from bson import ObjectId
     try:
+        # Use the string user_id returned by get_current_user
         result = cloudinary.uploader.upload(
             file.file,
             folder="avatars",
-            public_id=f"user_{str(user['_id'])}",
-            overwrite=True
+            public_id=f"user_{user['user_id']}",
+            overwrite=True,
+            resource_type="image",
         )
         avatar_url = result.get("secure_url")
 
+        # Convert to ObjectId for the DB update
         users_coll.update_one(
-            {"_id": user["_id"]},
+            {"_id": ObjectId(user["user_id"])},
             {"$set": {"avatar_url": avatar_url}}
         )
 
@@ -135,6 +139,7 @@ async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_c
     except Exception as e:
         print("Upload error:", e)
         raise HTTPException(status_code=500, detail="Upload failed.")
+
 
 
 @router.post("/login/google")
