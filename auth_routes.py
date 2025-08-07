@@ -41,24 +41,11 @@ def login(user: UserLogin):
     db_user = get_user_by_email(user.email)
 
     if not db_user:
-        # 🔐 Auto-register
-        hashed_pw = hash_password(user.password)
-        create_user_in_db(
-            email=user.email,
-            password_hash=hashed_pw,
-            extra={
-                "username": user.email.split("@")[0],
-                "avatar_url": "",
-                "login_method": "email"
-            }
-        )
-        db_user = get_user_by_email(user.email)
-    else:
-        # 🔐 Verify password if account exists
-        if not verify_password(user.password, db_user["password_hash"]):
-            raise HTTPException(status_code=400, detail="Invalid credentials.")
+        raise HTTPException(status_code=401, detail="Account does not exist.")
 
-    # ✅ Create JWT and return
+    if not verify_password(user.password, db_user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Invalid credentials.")
+
     token = create_access_token({"sub": str(db_user["_id"]), "email": db_user["email"]})
     return {"access_token": token, "token_type": "bearer"}
 
