@@ -71,6 +71,18 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(oauth2_
 def get_me(user=Depends(get_current_user)):
     return user
 
+@router.patch("/me")
+def update_me(user_update: dict = Body(...), user=Depends(get_current_user)):
+    from db import db
+    updated_fields = {}
+    if "username" in user_update:
+        updated_fields["username"] = user_update["username"]
+
+    if updated_fields:
+        db["users"].update_one({"_id": user["user_id"]}, {"$set": updated_fields})
+    return {"message": "Profile updated successfully."}
+
+
 @router.post("/login/google")
 def google_login(id_token: str = Body(...)):
     response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}")
