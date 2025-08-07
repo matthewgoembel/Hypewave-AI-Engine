@@ -123,7 +123,7 @@ async def upload_avatar(
     result = cloudinary.uploader.upload(
         file.file,
         folder="avatars",
-        public_id=f"user_{user['_id']}",
+        public_id = f"user_{user['id']}",
         overwrite=True
     )
 
