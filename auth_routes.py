@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import requests
 from auth_utils import hash_password, verify_password, create_access_token, decode_access_token
-from db import get_user_by_email, create_user_in_db, get_user_by_id, update_user_last_seen
+from db import get_user_by_email, create_user_in_db, get_user_by_id, update_user_last_seen, users_coll
 
 router = APIRouter()
 oauth2_scheme = HTTPBearer()
@@ -116,27 +116,25 @@ def update_password(data: dict = Body(...), user=Depends(get_current_user)):
     return {"message": "Password updated successfully"}
 
 @router.post("/me/avatar")
-async def upload_avatar(
-    file: UploadFile = File(...),
-    user=Depends(get_current_user)
-):
-    result = cloudinary.uploader.upload(
-        file.file,
-        folder="avatars",
-        public_id = f"user_{user['id']}",
-        overwrite=True
-    )
+async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    try:
+        result = cloudinary.uploader.upload(
+            file.file,
+            folder="avatars",
+            public_id=f"user_{str(user['_id'])}",
+            overwrite=True
+        )
+        avatar_url = result.get("secure_url")
 
-    avatar_url = result.get("secure_url")
+        users_coll.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"avatar_url": avatar_url}}
+        )
 
-    # Update user in Mongo
-    db["users"].update_one(
-        {"_id": user["_id"]},
-        {"$set": {"avatar_url": avatar_url}}
-    )
-
-    return {"avatar_url": avatar_url}
-
+        return {"avatar_url": avatar_url}
+    except Exception as e:
+        print("Upload error:", e)
+        raise HTTPException(status_code=500, detail="Upload failed.")
 
 
 @router.post("/login/google")
