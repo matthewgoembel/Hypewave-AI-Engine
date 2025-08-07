@@ -1,6 +1,7 @@
 # ✅ auth_routes.py (Updated)
 
 from fastapi import APIRouter, Body, HTTPException, Depends, status
+from bson import ObjectId
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import requests
@@ -75,11 +76,16 @@ def get_me(user=Depends(get_current_user)):
 def update_me(user_update: dict = Body(...), user=Depends(get_current_user)):
     from db import db
     updated_fields = {}
+
     if "username" in user_update:
         updated_fields["username"] = user_update["username"]
 
     if updated_fields:
-        db["users"].update_one({"_id": user["user_id"]}, {"$set": updated_fields})
+        db["users"].update_one({"_id": ObjectId(user["user_id"])}, {"$set": updated_fields})
+        print(f"✅ Updated user {user['user_id']} with: {updated_fields}")
+    else:
+        print("⚠️ No updates provided.")
+
     return {"message": "Profile updated successfully."}
 
 
