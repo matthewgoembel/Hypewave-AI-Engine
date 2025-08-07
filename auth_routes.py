@@ -88,6 +88,31 @@ def update_me(user_update: dict = Body(...), user=Depends(get_current_user)):
 
     return {"message": "Profile updated successfully."}
 
+@router.patch("/me/password")
+def update_password(data: dict = Body(...), user=Depends(get_current_user)):
+    old_pw = data.get("old_password")
+    new_pw = data.get("new_password")
+    confirm_pw = data.get("confirm_password")
+
+    if not old_pw or not new_pw or not confirm_pw:
+        raise HTTPException(status_code=400, detail="All fields are required.")
+
+    if new_pw != confirm_pw:
+        raise HTTPException(status_code=400, detail="New passwords do not match.")
+
+    user_doc = get_user_by_id(user["user_id"])
+    if not verify_password(old_pw, user_doc["password_hash"]):
+        raise HTTPException(status_code=401, detail="Incorrect current password.")
+
+    from db import client
+    client["hypewave"]["users"].update_one(
+        {"_id": user_doc["_id"]},
+        {"$set": {"password_hash": hash_password(new_pw)}}
+    )
+
+    return {"message": "Password updated successfully"}
+
+
 
 @router.post("/login/google")
 def google_login(id_token: str = Body(...)):
