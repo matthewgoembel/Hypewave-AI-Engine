@@ -1,6 +1,9 @@
 # ✅ auth_routes.py (Updated)
 
-from fastapi import APIRouter, Body, HTTPException, Depends, status
+from fastapi import APIRouter, Body, HTTPException, Depends, status, UploadFile, File
+import cloudinary
+import cloudinary.uploader
+import os
 from bson import ObjectId
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -111,6 +114,28 @@ def update_password(data: dict = Body(...), user=Depends(get_current_user)):
     )
 
     return {"message": "Password updated successfully"}
+
+@router.post("/me/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user)
+):
+    result = cloudinary.uploader.upload(
+        file.file,
+        folder="avatars",
+        public_id=f"user_{user['_id']}",
+        overwrite=True
+    )
+
+    avatar_url = result.get("secure_url")
+
+    # Update user in Mongo
+    db["users"].update_one(
+        {"_id": user["_id"]},
+        {"$set": {"avatar_url": avatar_url}}
+    )
+
+    return {"avatar_url": avatar_url}
 
 
 

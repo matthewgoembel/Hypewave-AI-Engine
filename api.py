@@ -13,6 +13,7 @@ from market_data_ws import get_latest_ohlc, start_ws_listener
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import base64, random, os, re, threading
+import cloudinary # type: ignore
 from bson import ObjectId
 from economic_scraper import scrape_marketwatch_calendar
 from contextlib import asynccontextmanager
@@ -22,10 +23,15 @@ from auth_routes import get_current_user
 from pathlib import Path
 from winrate_checker import get_winrate  # ✅ Added for winrate route
 
-
 load_dotenv()
+
 client = OpenAI()
 
+cloudinary.config(
+  cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+  api_key=os.getenv("CLOUDINARY_API_KEY"),
+  api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
 
 @asynccontextmanager
 async def lifespan(app):
