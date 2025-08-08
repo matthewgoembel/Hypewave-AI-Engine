@@ -140,7 +140,16 @@ async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_c
         print("Upload error:", e)
         raise HTTPException(status_code=500, detail="Upload failed.")
 
+@router.delete("/me")
+def delete_account(user=Depends(get_current_user)):
+    from db import users_coll
+    from bson import ObjectId
 
+    result = users_coll.delete_one({"_id": ObjectId(user["user_id"])})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    return {"message": "Account deleted successfully"}
 
 @router.post("/login/google")
 def google_login(id_token: str = Body(...)):
@@ -171,3 +180,4 @@ def google_login(id_token: str = Body(...)):
 
     token = create_access_token({"sub": str(user["_id"]), "email": user["email"]})
     return {"access_token": token, "token_type": "bearer"}
+
