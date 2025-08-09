@@ -347,7 +347,7 @@ async def record_signal_feedback(
 
 # ✅ New idempotent global vote endpoint
 @app.post("/signals/{signal_id}/vote")
-async def cast_vote(signal_id: str, vote: int = Body(...), user=Depends(get_current_user)):
+async def cast_vote(signal_id: str, vote: int = Body(..., embed=True), user=Depends(get_current_user)):
     """
     Idempotent voting:
       - vote: 1 (up) or -1 (down)
