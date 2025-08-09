@@ -23,9 +23,10 @@ except Exception as e:
 db = client["hypewave"]
 collection = db["signals"]
 alerts_coll = db["alerts"]
-chats_coll = db["chats"]  # ✅ NEW collection for chats
-trades_review = db["trades_review"]  # ✅ NEW collection for chats
+chats_coll = db["chats"]  
+trades_review = db["trades_review"]  
 users_coll = db["users"]
+votes_coll = db["signal_votes"]
 
 # Logging functions
 def log_signal(user_id: str, input_data: dict, output_data: dict, extra_meta: dict = None):

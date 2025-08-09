@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query, UploadFile, File, Form, Body, Request, BackgroundTasks, Depends
 from dotenv import load_dotenv
 from schemas import ChatRequest, ChatResponse
-from db import log_signal, collection, log_chat, chats_coll
+from db import log_signal, collection, log_chat, chats_coll, votes_coll  
 from datetime import datetime, timedelta, timezone
 from pymongo import DESCENDING
 from openai import OpenAI
@@ -21,7 +21,8 @@ from auth_routes import router as auth_router
 from auth_utils import decode_access_token
 from auth_routes import get_current_user
 from pathlib import Path
-from winrate_checker import get_winrate  # ✅ Added for winrate route
+from winrate_checker import get_winrate 
+from cleanup_signals import close_signals_once  
 
 load_dotenv()
 
@@ -35,7 +36,34 @@ cloudinary.config(
 
 @asynccontextmanager
 async def lifespan(app):
-    start_ws_listener() # Start signal engine
+    # ✅ Ensure indexes & default fields once at startup
+    try:
+        # Unique vote per (signal_id, user_id)
+        votes_coll.create_index([("signal_id", 1), ("user_id", 1)], unique=True)
+
+        # Seed default feedback counters and normalize status
+        from db import client as _mc
+        _mc["hypewave"]["signals"].update_many(
+            {"feedback": {"$exists": False}},
+            {"$set": {"feedback": {"up": 0, "down": 0}}}
+        )
+        _mc["hypewave"]["signals"].update_many({"status": "OPEN"}, {"$set": {"status": "open"}})
+    except Exception as _e:
+        print("[startup] index/defaults error:", _e)
+
+    # ✅ Start WS listener + AI engine
+    start_ws_listener()
+
+    # ✅ Start background closer loop (checks TP/SL hits)
+    async def _closer_loop():
+        while True:
+            try:
+                close_signals_once()
+            except Exception as e:
+                print("[closer] error:", e)
+            await asyncio.sleep(60)
+    asyncio.get_event_loop().create_task(_closer_loop())
+
     yield
 
 # Create FastAPI app *before* using it
@@ -242,7 +270,6 @@ async def fetch_news(limit: int = 20):
         return {"error": str(e)}
 
 
-
 @app.get("/signals/latest")
 async def get_latest_signals(
     skip: int = Query(0, ge=0),
@@ -262,19 +289,23 @@ async def get_latest_signals(
 
     results = list(cursor)
 
+    # ✅ Include feedback counts + status/outcome/closed_reason
     response = [
         {
             "signal_id": str(doc.get("_id")),
             "user_id": doc.get("user_id"),
             "input": doc.get("input"),
             "output": doc.get("output"),
-            "created_at": doc.get("created_at")
+            "created_at": doc.get("created_at"),
+            "feedback": doc.get("feedback", {"up": 0, "down": 0}),
+            "status": (doc.get("status") or "open"),
+            "outcome": doc.get("outcome"),
+            "closed_reason": doc.get("closed_reason"),
         }
         for doc in results
     ]
 
     return {"latest_signals": response}
-
 
 
 @app.get("/alerts/live")
@@ -314,7 +345,55 @@ async def record_signal_feedback(
     except Exception as e:
         return {"error": str(e)}
 
-from winrate_checker import get_winrate
+# ✅ New idempotent global vote endpoint
+@app.post("/signals/{signal_id}/vote")
+async def cast_vote(signal_id: str, vote: int = Body(...), user=Depends(get_current_user)):
+    """
+    Idempotent voting:
+      - vote: 1 (up) or -1 (down)
+      - one record per (signal_id, user_id)
+      - counters kept in signals.feedback.{up,down}
+    """
+    if vote not in (1, -1):
+        return {"error": "vote must be 1 or -1"}
+
+    sid = ObjectId(signal_id)
+    from db import client as mongo_client
+    signals_coll = mongo_client["hypewave"]["signals"]
+    sig = signals_coll.find_one({"_id": sid})
+    if not sig:
+        return {"error": "Signal not found"}
+
+    user_id = user["user_id"]
+    existing = votes_coll.find_one({"signal_id": sid, "user_id": user_id})
+
+    if not existing:
+        # create new vote
+        votes_coll.insert_one({
+            "signal_id": sid,
+            "user_id": user_id,
+            "vote": vote,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        })
+        if vote == 1:
+            signals_coll.update_one({"_id": sid}, {"$inc": {"feedback.up": 1}})
+        else:
+            signals_coll.update_one({"_id": sid}, {"$inc": {"feedback.down": 1}})
+    else:
+        prev = existing["vote"]
+        if prev != vote:
+            # flip vote
+            if prev == 1 and vote == -1:
+                signals_coll.update_one({"_id": sid}, {"$inc": {"feedback.up": -1, "feedback.down": 1}})
+            elif prev == -1 and vote == 1:
+                signals_coll.update_one({"_id": sid}, {"$inc": {"feedback.down": -1, "feedback.up": 1}})
+            votes_coll.update_one({"_id": existing["_id"]}, {"$set": {"vote": vote, "updated_at": datetime.now(timezone.utc)}})
+        # else: same vote → no-op
+
+    latest = signals_coll.find_one({"_id": sid}, {"feedback": 1})
+    fb = latest.get("feedback", {"up": 0, "down": 0})
+    return {"ok": True, "feedback": fb}
 
 @app.get("/signals/winrate")
 def get_global_winrate():
