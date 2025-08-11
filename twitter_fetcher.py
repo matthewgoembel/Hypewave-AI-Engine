@@ -1,139 +1,127 @@
-import os, time, sys
+# telegram_tracker.py
+from telethon import TelegramClient, events
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from db import client
+import os, asyncio
+from telethon.errors import FloodWaitError
+from dotenv import load_dotenv
+from telethon.sessions import StringSession
+from pathlib import Path
+import faulthandler
 
-from tweepy import Client, TweepyException
-from db import client as mongo_client
+# ⬇️ NEW: Cloudinary
+import cloudinary, cloudinary.uploader
 
-# ——— Configuration ———
-TWITTER_BEARER = os.getenv("TWITTER_BEARER_TOKEN")
-if not TWITTER_BEARER:
-    raise RuntimeError("Set TWITTER_BEARER_TOKEN in your .env")
- 
-POLL_INTERVAL = 1800  # 30 minutes
-STARTUP_TIME = datetime.now(timezone.utc)
+faulthandler.enable()
+load_dotenv()
 
-ACCOUNTS = ["hypewave_ai"]  # #, "WatcherGuru", "nypost"
-    # Add more later
-    #, "aeyakovenko", "cz_binance"
-    #"thelordofentry", "Bloomberg", "Reuters", "CoinDesk", "intocryptoverse",
-    #"WSJ", "degeneratenews", "elonmusk",
+api_id = int(os.getenv("TELEGRAM_API_ID"))
+api_hash = os.getenv("TELEGRAM_API_HASH")
+session_string = os.getenv("TELEGRAM_SESSION")
 
-# ——— Setup ———
-twitter = Client(bearer_token=TWITTER_BEARER, wait_on_rate_limit=True)
-db = mongo_client["hypewave"]
-tweets_coll = db["tweets"]
-users_coll = db["users"]
+# Cloudinary config (uses same env as your avatars)
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
+)
 
-_user_ids: Dict[str, str] = {}
-_last_seen: Dict[str, str] = {}
+channel_usernames = [
+    "WatcherGuru",
+    "CryptoProUpdates",
+    "TreeNewsFeed",
+    "thekingsofsolana",
+    "rektcapitalinsider"
+]
 
-# ——— Load or Cache User ID Once ———
-def init_user_ids():
-    print("🔁 Loading user IDs from MongoDB...")
-    for username in ACCOUNTS:
-        cached = users_coll.find_one({"username": username})
-        if cached:
-            _user_ids[username] = cached["id"]
-        else:
-            while True:
+collection = client["hypewave"]["telegram_news"]
+
+# Local media dir (used only as a temp/fallback)
+media_path = Path(__file__).resolve().parent / "media"
+media_path.mkdir(exist_ok=True)
+
+tg_client = TelegramClient(StringSession(session_string), api_id, api_hash)
+
+def get_display_name(entity):
+    if hasattr(entity, "title") and entity.title:
+        return entity.title
+    if hasattr(entity, "first_name") and entity.first_name:
+        if hasattr(entity, "last_name") and entity.last_name:
+            return f"{entity.first_name} {entity.last_name}"
+        return entity.first_name
+    if hasattr(entity, "username") and entity.username:
+        return entity.username
+    return "Unnamed"
+
+@tg_client.on(events.NewMessage(chats=channel_usernames))
+async def handler(event):
+    message = event.message
+    canonical_username = event.chat.username
+    display_name = event.chat.title or canonical_username
+
+    print(f"📨 New message from @{canonical_username}: {message.text[:60] if message.text else '[no text]'}")
+
+    # De-dupe
+    if collection.find_one({"id": message.id, "source": canonical_username}):
+        print("⚠️ Duplicate message — skipping")
+        return
+
+    media_url = None
+    if message.media:
+        file_path = None
+        try:
+            print("🟡 Media detected — downloading…")
+            file_path = await tg_client.download_media(message.media, file=str(media_path))
+            if file_path:
+                print("☁️ Uploading to Cloudinary…")
+                public_id = f"hypewave/news/{canonical_username}/{message.id}"
+                up = cloudinary.uploader.upload(
+                    file_path,
+                    resource_type="auto",     # image, gif, video — auto-detect
+                    public_id=public_id,
+                    overwrite=True,
+                    unique_filename=False,
+                )
+                media_url = up.get("secure_url")  # absolute https
+                print(f"✅ Cloudinary uploaded: {media_url}")
+            else:
+                print("❌ download_media returned None")
+        except Exception as e:
+            print(f"❌ Cloudinary upload error: {e} — falling back to local /media")
+            if file_path:
                 try:
-                    resp = twitter.get_user(username=username, user_fields=["id", "username"])
-                    if resp and resp.data:
-                        uid = resp.data.id
-                        _user_ids[username] = uid
-                        users_coll.insert_one({"username": username, "id": uid})
-                        print(f"✅ Cached @{username} → {uid}")
-                        break
-                except TweepyException as e:
-                    print(f"[Error] Cannot fetch @{username}: {e}")
-                    print("⏳ Sleeping 300s before retrying...")
-                    time.sleep(300)
+                    filename = Path(file_path).name
+                    media_url = f"/media/{filename}"
+                except Exception:
+                    pass
+        finally:
+            # optional cleanup of temp file
+            try:
+                if file_path and Path(file_path).exists():
+                    os.remove(file_path)
+            except Exception:
+                pass
 
-# ——— Fetch New Tweets ———
-def fetch_new_for_user(handle: str, max_results: int = 5) -> List:
-    uid = _user_ids.get(handle)
-    if not uid:
-        return []
+    # Save to MongoDB
+    doc = {
+        "id": message.id,
+        "text": message.text,
+        "date": message.date.replace(tzinfo=timezone.utc),
+        "link": f"https://t.me/{canonical_username}/{message.id}",
+        "source": canonical_username,
+        "display_name": display_name,
+        "media_url": media_url,   # Cloudinary URL or /media/ fallback
+    }
 
-    since_id: Optional[str] = _last_seen.get(handle)
-    try:
-        resp = twitter.get_users_tweets(
-            id=uid,
-            since_id=since_id,
-            max_results=max_results,
-            tweet_fields=["id", "text", "created_at", "author_id"]
-        )
-    except TweepyException as e:
-        print(f"[Error] get_users_tweets for @{handle}: {e}")
-        return []
+    collection.insert_one(doc)
+    print(f"📥 Inserted message ID {message.id} into MongoDB.")
 
-    tweets = resp.data or []
-    filtered = [t for t in tweets if t.created_at and t.created_at > STARTUP_TIME]
-    if filtered:
-        _last_seen[handle] = str(filtered[0].id)
-
-    return filtered
-
-# ——— Save to MongoDB ———
-def save_tweets(source: str, tweets: List) -> None:
-    for tw in tweets:
-        tweet_url = f"https://x.com/{source}/status/{tw.id}"
-        tweets_coll.update_one(
-            {"tweet_id": tw.id},
-            {"$set": {
-                "tweet_id":   tw.id,
-                "tweet_url":  tweet_url,
-                "user":       source,
-                "content":    tw.text,
-                "created_at": tw.created_at.isoformat()
-            }},
-            upsert=True
-        )
-
-def get_latest_saved_tweets(limit: int = 10):
-    docs = tweets_coll.find().sort("created_at", -1).limit(limit)
-    return [
-        {
-            "username": doc["user"],
-            "tweet_url": doc.get("tweet_url"),
-            "timestamp": doc["created_at"]
-        }
-        for doc in docs if doc.get("tweet_url")
-    ]
-
-
-# ——— Main Loop ———
-def run_loop(interval_seconds: int = POLL_INTERVAL) -> None:
-    init_user_ids()
-    print(f"🟢 Twitter fetcher started — checking @{ACCOUNTS[0]} every {interval_seconds // 60} minutes")
-
-    while True:
-        handle = ACCOUNTS[0]
-        tweets = fetch_new_for_user(handle)
-        if tweets:
-            save_tweets(handle, tweets)
-            print(f"  • @{handle}: saved {len(tweets)} new tweets")
-        else:
-            print(f"  • @{handle}: no new tweets")
-        time.sleep(interval_seconds)
+async def main():
+    print("[Telegram Tracker] Starting Telegram client...")
+    await tg_client.start()
+    print("[Telegram Tracker] Connected.")
+    await tg_client.run_until_disconnected()
 
 if __name__ == "__main__":
-    run_loop()
-
-def run_once_now():
-    init_user_ids()
-    handle = ACCOUNTS[0]
-    print(f"⚡ Manual fetch for @{handle}...")
-    tweets = fetch_new_for_user(handle)
-    if tweets:
-        save_tweets(handle, tweets)
-        print(f"  • @{handle}: saved {len(tweets)} new tweets")
-    else:
-        print(f"  • @{handle}: no new tweets")
-
-if __name__ == "__main__":
-    if "--now" in sys.argv:
-        run_once_now()
-    else:
-        run_loop()
+    asyncio.run(main())
