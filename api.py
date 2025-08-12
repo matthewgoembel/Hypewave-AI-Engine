@@ -263,7 +263,7 @@ def get_weekly_calendar(offset: int = 0):
 
 
 @app.get("/news/latest")
-async def fetch_news(limit: int = 20):
+async def fetch_news(limit: int = 24):
     try:
         return get_latest_news(limit=limit)
     except Exception as e:

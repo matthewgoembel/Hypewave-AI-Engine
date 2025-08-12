@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from dotenv import load_dotenv
 import os
+from . import client
 
 # Load .env
 load_dotenv()
@@ -85,37 +86,29 @@ def log_chat(user_id: str, input_data: dict, output_data: dict):
     chats_coll.insert_one(entry)
 
 
-def get_latest_news(limit=20):
-    """
-    Fetches the latest news from both Telegram and Truth Social.
-    Returns a combined, sorted list.
-    """
-    # Fetch Telegram posts
+def get_latest_news(limit=24):
     telegram_coll = client["hypewave"]["telegram_news"]
-    telegram_cursor = telegram_coll.find().sort("date", -1).limit(limit)
-    telegram_docs = list(telegram_cursor)
-
-    # Fetch Truth Social posts
     truth_coll = client["hypewave"]["truthsocial_news"]
-    truth_cursor = truth_coll.find().sort("date", -1).limit(limit)
-    truth_docs = list(truth_cursor)
 
-    # Combine and sort by date
-    combined = telegram_docs + truth_docs
-    combined.sort(key=lambda x: x["date"], reverse=True)
+    t_docs = list(telegram_coll.find().sort("date", -1).limit(limit))
+    tr_docs = list(truth_coll.find().sort("date", -1).limit(limit))
+    combined = t_docs + tr_docs
+    combined.sort(key=lambda x: x.get("date") or datetime.min, reverse=True)
 
-    # Build response list
-    return [
-        {
+    out = []
+    for doc in combined[:limit]:
+        out.append({
             "text": doc.get("text"),
             "link": doc.get("link"),
             "timestamp": doc.get("date").isoformat() if doc.get("date") else None,
             "source": doc.get("source"),
             "display_name": doc.get("display_name"),
-            "media_url": doc.get("media_url")
-        }
-        for doc in combined[:limit]
-    ]
+            "media_url": doc.get("media_url"),     # legacy single url
+            "media": doc.get("media", []),         # NEW multi
+            "avatar_url": doc.get("avatar_url"),   # (if you added avatars)
+            "album_id": doc.get("album_id"),
+        })
+    return out
 
 
 def log_feedback(signal_id: str, feedback: str):
