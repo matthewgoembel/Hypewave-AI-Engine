@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from dotenv import load_dotenv
 import os
-from . import client
+from db import client
 
 # Load .env
 load_dotenv()
