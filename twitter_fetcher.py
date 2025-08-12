@@ -15,7 +15,7 @@ faulthandler.enable()
 load_dotenv()
 
 api_id = int(os.getenv("TELEGRAM_API_ID"))
-api_hash = os.getenv("TELEGRAM_API_HASH"))
+api_hash = os.getenv("TELEGRAM_API_HASH")
 session_string = os.getenv("TELEGRAM_SESSION")
 
 cloudinary.config(
