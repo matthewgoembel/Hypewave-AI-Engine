@@ -31,6 +31,7 @@ channel_usernames = [
     "TreeNewsFeed",
     "thekingsofsolana",
     "rektcapitalinsider",
+    "hypewaveai",
 ]
 
 collection = client["hypewave"]["telegram_news"]
