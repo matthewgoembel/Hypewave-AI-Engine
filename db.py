@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from bson import ObjectId
 from dotenv import load_dotenv
 import os
-from db import client
 
 # Load .env
 load_dotenv()
@@ -103,9 +102,9 @@ def get_latest_news(limit=24):
             "timestamp": doc.get("date").isoformat() if doc.get("date") else None,
             "source": doc.get("source"),
             "display_name": doc.get("display_name"),
-            "media_url": doc.get("media_url"),     # legacy single url
-            "media": doc.get("media", []),         # NEW multi
-            "avatar_url": doc.get("avatar_url"),   # (if you added avatars)
+            "media_url": doc.get("media_url"),     
+            "media": doc.get("media", []),         
+            "avatar_url": doc.get("avatar_url"),   
             "album_id": doc.get("album_id"),
         })
     return out

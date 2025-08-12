@@ -101,7 +101,7 @@ async def handler(event):
             "link": f"https://t.me/{canonical_username}/{message.id}",
             "source": canonical_username,
             "display_name": display_name,
-            "media": [],  # NEW multi-attachment array
+            "media": [],  
         }
     }
 
