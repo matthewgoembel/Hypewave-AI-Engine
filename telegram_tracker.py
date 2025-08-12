@@ -101,21 +101,36 @@ async def handler(event):
             "link": f"https://t.me/{canonical_username}/{message.id}",
             "source": canonical_username,
             "display_name": display_name,
-            "media": [],  
+            # DO NOT set "media" here by default; we’ll conditionally add it below
         }
     }
 
-    # carry/refresh text if present
+    # Keep the FIRST text we see; don’t overwrite later
     if message.text:
-        update.setdefault("$set", {})["text"] = message.text
+        update["$setOnInsert"]["text"] = message.text
 
-    # push media into the array; keep media_url = first item (compat)
+    # Media handling:
     if media_item:
-        update.setdefault("$push", {})["media"] = media_item
-        update.setdefault("$setOnInsert", {})["media_url"] = media_item["url"]
+        # Push creates the array if missing — no conflict with $setOnInsert
+        update["$push"] = {"media": media_item}
+        # Set the first media_url only on insert (compat)
+        update["$setOnInsert"]["media_url"] = media_item["url"]
+    else:
+        # No media in this part (e.g., first message is text) — initialize empty array on insert
+        update["$setOnInsert"]["media"] = []
 
-    coll.update_one(key, update, upsert=True)
+    res = coll.update_one(key, update, upsert=True)
     print(f"📥 Upserted {'album' if album_id else 'post'} {album_id or message.id}")
+
+    # If this part had media and the doc still lacks media_url (e.g., first part was text),
+    # set media_url now without touching existing ones.
+    if media_item:
+        coll.update_one({**key, "media_url": {"$exists": False}},
+                        {"$set": {"media_url": media_item["url"]}})
+    # If this part has text and the doc has no text yet, set it once.
+    if message.text:
+        coll.update_one({**key, "$or": [{"text": {"$exists": False}}, {"text": None}, {"text": ""}]},
+                        {"$set": {"text": message.text}})
 
 async def main():
     print("[Telegram Tracker] Starting Telegram client...")
