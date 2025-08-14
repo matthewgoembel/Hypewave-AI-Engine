@@ -395,6 +395,72 @@ async def cast_vote(signal_id: str, vote: int = Body(..., embed=True), user=Depe
     fb = latest.get("feedback", {"up": 0, "down": 0})
     return {"ok": True, "feedback": fb}
 
+@app.post("/analyze-economic")
+async def analyze_economic(payload: dict = Body(...)):
+    """
+    Analyze a single economic calendar item and return a concise, tradable summary.
+    Accepts either:
+      - { "prompt": "<full prompt string>" }
+      - or fields: { title, date, time, period, forecast, previous, actual }
+    Returns: { "analysis": str }
+    """
+    # pull fields
+    title    = (payload.get("title") or "").strip()
+    date     = (payload.get("date") or "").strip()
+    time_    = (payload.get("time") or "").strip()
+    period   = (payload.get("period") or "").strip()
+    forecast = (payload.get("forecast") or "").strip()
+    previous = (payload.get("previous") or "").strip()
+    actual   = (payload.get("actual") or "").strip()
+    user_prompt = payload.get("prompt")
+
+    # build a compact, instruction‑driven prompt when none provided
+    if not user_prompt:
+        lines = [
+            "You are Hypewave AI. Analyze an economic data release for traders.",
+            "",
+            f"Release: {title or 'N/A'}",
+            f"Date: {date or 'N/A'}",
+            f"Time: {time_ or 'N/A'}",
+            f"Period: {period}" if period else None,
+            f"Forecast: {forecast}" if forecast else None,
+            f"Previous: {previous}" if previous else None,
+            f"Actual: {actual}" if actual else None,
+            "",
+            "Write a SHORT, crisp take (no long paragraphs). Use 1-3 bullets max:",
+            "• Why markets care (which assets most sensitive: rates, USD, equities, oil, gold).",
+            "• Over vs under forecast: likely immediate reactions.",
+            "• What details matter (core vs headline, revisions, subcomponents).",
+            "• (If helpful) 1‑line historical/seasonal context.",
+            "",
+            "Constraints:",
+            "- Keep it under ~120 words.",
+            "- No fluff, no generic disclaimers.",
+            "- Prefer concrete mappings (e.g., 'hotter CPI → ↑yields/↑USD/↓gold').",
+        ]
+        user_prompt = "\n".join([l for l in lines if l is not None])
+
+    # call your existing OpenAI client (same style as /chat)
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are Hypewave AI: concise, market‑savvy, and specific."},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=320,   # tight: we want short output
+            temperature=0.4,  # crisp + deterministic
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        # final safety clamp: if model returned something long, trim politely
+        if len(text.split()) > 140:
+            words = text.split()[:140]
+            text = " ".join(words) + " …"
+        return {"analysis": text}
+    except Exception as e:
+        # bubble up a friendly error
+        return {"analysis": None, "error": str(e)}
+
 @app.get("/signals/winrate")
 def get_global_winrate():
     return get_winrate()
