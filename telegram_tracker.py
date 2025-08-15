@@ -1,11 +1,12 @@
 # telegram_tracker.py
 from telethon import TelegramClient, events
 from datetime import datetime, timezone
-from db import client
+from db import client, get_all_news_push_tokens
 import os, asyncio
 from dotenv import load_dotenv
 from telethon.sessions import StringSession
 from pathlib import Path
+import requests
 import faulthandler
 
 # Cloudinary
@@ -129,9 +130,64 @@ async def handler(event):
         coll.update_one({**key, "media_url": {"$exists": False}},
                         {"$set": {"media_url": media_item["url"]}})
     # If this part has text and the doc has no text yet, set it once.
+        # If this part has text and the doc has no text yet, set it once.
     if message.text:
         coll.update_one({**key, "$or": [{"text": {"$exists": False}}, {"text": None}, {"text": ""}]},
                         {"$set": {"text": message.text}})
+
+    # --- NEW: trigger push after upsert ---
+    # --- trigger push only on first insert (prevents duplicates for albums) ---
+    try:
+        if res.upserted_id:  # only notify when this post/album is first created
+            txt = (message.text or "").strip()
+            summary = (txt[:120] + "…") if txt and len(txt) > 120 else (txt or "New post")
+            post_link = f"https://t.me/{canonical_username}/{message.id}"
+            broadcast_news_push(title=f"🔥 {display_name}", body=summary, link=post_link)
+    except Exception as e:
+        print("❌ [push] broadcast error:", e)
+        
+
+# --- Expo push helpers ---
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+
+def _chunk(lst, n):
+    for i in range(0, len(lst), n):
+        yield lst[i:i+n]
+
+def broadcast_news_push(title: str, body: str, link: str | None = None):
+    """
+    Sends a push to all users who opted into news notifications.
+    Expo requires batches of <= 100 messages per request.
+    """
+    tokens = get_all_news_push_tokens()
+    if not tokens:
+        print("ℹ️ [push] No tokens to notify.")
+        return
+
+    # Build messages
+    payloads = [{
+        "to": t,
+        "sound": "default",
+        "title": title,
+        "body": body,
+        "data": {"type": "news", "link": link}  # helpful to deep-link later
+    } for t in tokens]
+
+    sent = 0
+    for batch in _chunk(payloads, 100):
+        try:
+            r = requests.post(EXPO_PUSH_URL, json=batch, headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            }, timeout=10)
+            if r.status_code != 200:
+                print(f"❌ [push] Expo error {r.status_code}: {r.text[:200]}")
+            else:
+                sent += len(batch)
+        except Exception as e:
+            print("❌ [push] send error:", e)
+
+    print(f"📣 [push] Broadcast to {sent} devices.")
 
 async def main():
     print("[Telegram Tracker] Starting Telegram client...")

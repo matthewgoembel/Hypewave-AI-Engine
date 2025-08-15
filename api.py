@@ -7,7 +7,7 @@ from pymongo import DESCENDING
 from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
-from db import get_latest_news
+from db import get_latest_news, set_user_push_token
 from signal_engine import generate_alerts_for_symbol
 from market_data_ws import get_latest_ohlc, start_ws_listener
 from fastapi.staticfiles import StaticFiles
@@ -22,9 +22,11 @@ from auth_utils import decode_access_token
 from auth_routes import get_current_user
 from pathlib import Path
 from winrate_checker import get_winrate 
-from cleanup_signals import close_signals_once  
+from cleanup_signals import close_signals_once
+from pydantic import BaseModel
 
 load_dotenv()
+
 
 client = OpenAI()
 
@@ -66,6 +68,8 @@ async def lifespan(app):
 
     yield
 
+class PushTokenBody(BaseModel):
+    expo_push_token: str
 # Create FastAPI app *before* using it
 app = FastAPI(lifespan=lifespan)
 
@@ -460,6 +464,18 @@ async def analyze_economic(payload: dict = Body(...)):
     except Exception as e:
         # bubble up a friendly error
         return {"analysis": None, "error": str(e)}
+    
+@app.post("/me/push-token")
+async def save_push_token(body: PushTokenBody, user=Depends(get_current_user)):
+    """
+    Saves the caller's Expo push token on their user record.
+    Call this from the app after registerForPushNotificationsAsync().
+    """
+    try:
+        set_user_push_token(user["user_id"], body.expo_push_token)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 @app.get("/signals/winrate")
 def get_global_winrate():

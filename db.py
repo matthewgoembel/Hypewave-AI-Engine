@@ -147,3 +147,31 @@ def update_user_last_seen(user_id: str):
         {"$set": {"last_seen": datetime.now(timezone.utc)}}
     )
 
+# --- Push notification helpers ---
+
+def set_user_push_token(user_id: str, expo_push_token: str):
+    """Save/replace a user's Expo push token."""
+    users_coll.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"expo_push_token": expo_push_token}},
+        upsert=False
+    )
+
+def get_all_news_push_tokens():
+    """
+    Return a list of Expo push tokens for users who want news pushes.
+    If 'notification_prefs.news' is missing, default to True (opt-in by default).
+    """
+    cursor = users_coll.find(
+        {
+            "expo_push_token": {"$exists": True, "$ne": None, "$type": "string"},
+            "$or": [
+                {"notification_prefs.news": True},
+                {"notification_prefs.news": {"$exists": False}}
+            ]
+        },
+        {"expo_push_token": 1}
+    )
+    tokens = [doc["expo_push_token"] for doc in cursor if doc.get("expo_push_token")]
+    # De-dup tokens just in case the same token is stored multiple times
+    return list(dict.fromkeys(tokens))
