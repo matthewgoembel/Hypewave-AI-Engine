@@ -142,7 +142,7 @@ async def handler(event):
             txt = (message.text or "").strip()
             summary = (txt[:120] + "…") if txt and len(txt) > 120 else (txt or "New post")
             post_link = f"https://t.me/{canonical_username}/{message.id}"
-            broadcast_news_push(title=f"🔥 {display_name}", body=summary, link=post_link)
+            broadcast_news_push(title=f"{display_name}", body=summary, link=post_link, logo_url="https://hypewave-ai-engine.onrender.com/static/main_logo.png")
     except Exception as e:
         print("❌ [push] broadcast error:", e)
         

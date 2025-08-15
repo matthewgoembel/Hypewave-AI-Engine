@@ -7,6 +7,7 @@ from pymongo import DESCENDING
 from openai import OpenAI
 from market_context import extract_symbol, get_market_context
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from db import get_latest_news, set_user_push_token
 from signal_engine import generate_alerts_for_symbol
 from market_data_ws import get_latest_ohlc, start_ws_listener
@@ -78,6 +79,8 @@ app = FastAPI(lifespan=lifespan)
 
 # Include login system
 app.include_router(auth_router)
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
