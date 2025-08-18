@@ -145,7 +145,7 @@ async def handler(event):
             broadcast_news_push(title=f"{display_name}", body=summary, link=post_link, logo_url="https://hypewave-ai-engine.onrender.com/static/main_logo.png")
     except Exception as e:
         print("❌ [push] broadcast error:", e)
-        
+
 
 # --- Expo push helpers ---
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
@@ -154,23 +154,31 @@ def _chunk(lst, n):
     for i in range(0, len(lst), n):
         yield lst[i:i+n]
 
-def broadcast_news_push(title: str, body: str, link: str | None = None):
-    """
-    Sends a push to all users who opted into news notifications.
-    Expo requires batches of <= 100 messages per request.
-    """
+def broadcast_news_push(
+    title: str,
+    body: str,
+    link: str | None = None,
+    logo_url: str | None = None,        # NEW: accept logo
+    channel_id: str = "news"            # NEW: default to your News channel
+):
     tokens = get_all_news_push_tokens()
     if not tokens:
         print("ℹ️ [push] No tokens to notify.")
         return
 
-    # Build messages
     payloads = [{
         "to": t,
-        "sound": "default",
         "title": title,
         "body": body,
-        "data": {"type": "news", "link": link}  # helpful to deep-link later
+        "sound": "default",
+        "data": {"type": "news", "link": link},
+        "channelId": channel_id,        # ensure it routes to “news”
+        "priority": "high",             # heads-up on Android
+        "subtitle": "Hypewave AI",      # nice extra on iOS
+        # Expo supports showing an image in many launchers:
+        # this is ignored if the platform/launcher doesn’t support it.
+        "imageUrl": logo_url or None,   # optional brand image
+        "mutableContent": True,         # helps iOS render rich content
     } for t in tokens]
 
     sent = 0

@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Body, HTTPException, Depends, status, UploadFile, File
 import cloudinary
 import cloudinary.uploader
-import os
+import os, requests
 from bson import ObjectId
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -13,6 +13,13 @@ from db import get_user_by_email, create_user_in_db, get_user_by_id, update_user
 
 router = APIRouter()
 oauth2_scheme = HTTPBearer()
+
+GOOGLE_ALLOWED_AUDS = {
+    os.getenv("GOOGLE_IOS_CLIENT_ID"),
+    os.getenv("GOOGLE_ANDROID_CLIENT_ID"),
+    os.getenv("GOOGLE_WEB_CLIENT_ID"),
+    os.getenv("GOOGLE_EXPO_CLIENT_ID"),
+}
 
 class UserRegister(BaseModel):
     email: str
@@ -151,30 +158,43 @@ def delete_account(user=Depends(get_current_user)):
 
     return {"message": "Account deleted successfully"}
 
+def _allowed_google_auds():
+    # Only iOS for now
+    ids = [os.getenv("GOOGLE_IOS_CLIENT_ID")]
+    return {i for i in ids if i}
+
 @router.post("/login/google")
-def google_login(id_token: str = Body(...)):
-    response = requests.get(f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token}")
-    if response.status_code != 200:
+def google_login(id_token: str = Body(..., embed=True)):
+    # Verify with Google
+    r = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"id_token": id_token}, timeout=10)
+    if r.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid Google token.")
 
-    payload = response.json()
+    payload = r.json()
     email = payload.get("email")
-    picture = payload.get("picture")
-    name = payload.get("name")
+    aud = payload.get("aud")
+    iss = payload.get("iss")
+
+    if iss not in ("https://accounts.google.com", "accounts.google.com"):
+        raise HTTPException(status_code=401, detail="Invalid token issuer.")
+
+    allowed = _allowed_google_auds()
+    if allowed and aud not in allowed:
+        raise HTTPException(status_code=401, detail="Token audience mismatch.")
 
     if not email:
-        raise HTTPException(status_code=400, detail="Missing email in Google payload.")
+        raise HTTPException(status_code=400, detail="Email missing in Google payload.")
+
+    # Upsert user
+    name = payload.get("name") or email.split("@")[0]
+    picture = payload.get("picture") or ""
 
     user = get_user_by_email(email)
     if not user:
         create_user_in_db(
             email=email,
-            password_hash="",
-            extra={
-                "username": name or email.split("@")[0],
-                "avatar_url": picture or "",
-                "login_method": "google"
-            }
+            password_hash="",  # social login
+            extra={"username": name, "avatar_url": picture, "login_method": "google"}
         )
         user = get_user_by_email(email)
 
