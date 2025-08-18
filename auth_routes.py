@@ -165,7 +165,6 @@ def _allowed_google_auds():
 
 @router.post("/login/google")
 def google_login(id_token: str = Body(..., embed=True)):
-    # Verify with Google
     r = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"id_token": id_token}, timeout=10)
     if r.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid Google token.")
@@ -178,22 +177,25 @@ def google_login(id_token: str = Body(..., embed=True)):
     if iss not in ("https://accounts.google.com", "accounts.google.com"):
         raise HTTPException(status_code=401, detail="Invalid token issuer.")
 
-    allowed = _allowed_google_auds()
+    allowed = {v for v in [
+        os.getenv("GOOGLE_IOS_CLIENT_ID"),
+        os.getenv("GOOGLE_EXPO_CLIENT_ID")
+    ] if v}
+
     if allowed and aud not in allowed:
         raise HTTPException(status_code=401, detail="Token audience mismatch.")
 
     if not email:
-        raise HTTPException(status_code=400, detail="Email missing in Google payload.")
+        raise HTTPException(status_code=400, detail="Missing email in Google payload.")
 
-    # Upsert user
-    name = payload.get("name") or email.split("@")[0]
     picture = payload.get("picture") or ""
+    name = payload.get("name") or email.split("@")[0]
 
     user = get_user_by_email(email)
     if not user:
         create_user_in_db(
             email=email,
-            password_hash="",  # social login
+            password_hash="",
             extra={"username": name, "avatar_url": picture, "login_method": "google"}
         )
         user = get_user_by_email(email)
