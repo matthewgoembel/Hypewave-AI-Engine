@@ -41,12 +41,37 @@ collection = client["hypewave"]["telegram_news"]
 media_path = Path(__file__).resolve().parent / "media"
 media_path.mkdir(exist_ok=True)
 
+avatars_dir = media_path / "avatars"
+avatars_dir.mkdir(exist_ok=True)
+
 tg_client = TelegramClient(StringSession(session_string), api_id, api_hash)
 
 @tg_client.on(events.NewMessage(chats=channel_usernames))
 async def handler(event):
     message = event.message
     canonical_username = event.chat.username
+
+    avatar_url = None
+    try:
+        # download the channel's current profile photo to a temp file
+        avatar_tmp = await tg_client.download_profile_photo(
+            event.chat, file=str(avatars_dir / f"{canonical_username}.jpg")
+        )
+        if avatar_tmp:
+            up = cloudinary.uploader.upload(
+                avatar_tmp,
+                public_id=f"hypewave/avatars/telegram/{canonical_username}",
+                overwrite=True,
+                unique_filename=False,
+            )
+            avatar_url = up["secure_url"]
+    finally:
+        try:
+            if avatar_tmp and Path(avatar_tmp).exists():
+                os.remove(avatar_tmp)
+        except Exception:
+            pass
+
     display_name = event.chat.title or canonical_username
     album_id = getattr(message, "grouped_id", None)  # albums share this id
 
@@ -110,6 +135,11 @@ async def handler(event):
     # Keep the FIRST text we see; don’t overwrite later
     if message.text:
         update["$setOnInsert"]["text"] = message.text
+
+    # ensure display_name stays fresh and attach avatar if we have one
+    update.setdefault("$set", {})["display_name"] = display_name
+    if avatar_url:
+        update["$set"]["avatar_url"] = avatar_url    
 
     # Media handling:
     if media_item:
