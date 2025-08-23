@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query, UploadFile, File, Form, Body, Request, BackgroundTasks, Depends
 from dotenv import load_dotenv
 from schemas import ChatRequest, ChatResponse
-from db import log_signal, collection, log_chat, chats_coll, votes_coll  
+from db import log_signal, collection, log_chat, chats_coll, votes_coll, users_coll  
 from datetime import datetime, timedelta, timezone
 from pymongo import DESCENDING
 from openai import OpenAI
@@ -43,6 +43,8 @@ async def lifespan(app):
     try:
         # Unique vote per (signal_id, user_id)
         votes_coll.create_index([("signal_id", 1), ("user_id", 1)], unique=True)
+
+        users_coll.create_index("apple_sub", unique=True, sparse=True)
 
         # Seed default feedback counters and normalize status
         from db import client as _mc
