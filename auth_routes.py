@@ -38,6 +38,12 @@ class UserLogin(BaseModel):
 class IdTokenBody(BaseModel):
     id_token: str
 
+class AppleLoginBody(BaseModel):
+    id_token: str
+    email_hint: str | None = None
+    given_name: str | None = None
+    family_name: str | None = None
+
 # --- Helpers ---
 def _mint_session_for_email(email: str, default_name: str = "User", avatar_url: str = "", login_method: str = "oauth"):
     """Find or create a user, then mint our JWT."""
@@ -196,37 +202,72 @@ def _apple_key_for_kid(kid: str):
     return None
 
 @router.post("/login/apple")
-def apple_login(body: IdTokenBody):
+def apple_login(body: AppleLoginBody):
     if not APPLE_BUNDLE_ID:
         raise HTTPException(status_code=500, detail="Server missing APPLE_BUNDLE_ID.")
     id_token = body.id_token
 
-    # 1) Get header, choose the right JWK by kid
+    # 1) pick JWK and verify
     try:
         header = jwt.get_unverified_header(id_token)
         jwk = _apple_key_for_kid(header.get("kid", ""))
         if not jwk:
             raise HTTPException(status_code=401, detail="Apple key not found.")
-    except JWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid Apple token header: {e}")
-
-    # 2) Verify signature & claims
-    try:
         claims = jwt.decode(
             id_token,
-            jwk,  # jose can take a JWK dict directly
+            jwk,
             algorithms=[jwk.get("alg", "RS256")],
-            audience=APPLE_BUNDLE_ID,                 # native app -> bundle id
+            audience=APPLE_BUNDLE_ID,
             issuer="https://appleid.apple.com",
-            options={"verify_at_hash": False},        # not used in native flow
+            options={"verify_at_hash": False},
         )
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid Apple token: {e}")
 
-    email = claims.get("email")
-    if not email:
-        # In rare cases Apple withholds email after first authorization; you can map by sub if you store it.
-        raise HTTPException(status_code=400, detail="Email not present in Apple token.")
+    apple_sub = claims.get("sub")                 # stable Apple user id
+    email_from_token = claims.get("email")        # only on first auth
+    incoming_email = email_from_token or body.email_hint
 
-    name = email.split("@")[0]
-    return _mint_session_for_email(email, default_name=name, login_method="apple")
+    # 2) upsert by apple_sub
+    user = users_coll.find_one({"apple_sub": apple_sub})
+    if not user:
+        # If you want to link to an existing email user on first login:
+        if incoming_email:
+            user = get_user_by_email(incoming_email)
+
+        username = (" ".join(filter(None, [body.given_name, body.family_name])) or
+                    (incoming_email.split("@")[0] if incoming_email else "Trader"))
+
+        if user:
+            # link existing user to Apple
+            users_coll.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"apple_sub": apple_sub, "login_method": "apple",
+                          **({"email": incoming_email} if incoming_email and not user.get("email") else {})}}
+            )
+        else:
+            user = {
+                "apple_sub": apple_sub,
+                "email": incoming_email or None,   # allow null if hidden/missing
+                "username": username,
+                "plan": "Free",
+                "avatar_url": "",
+                "login_method": "apple",
+                "created_at": int(time.time()),
+            }
+            users_coll.insert_one(user)
+            # re-read to get _id
+            user = users_coll.find_one({"apple_sub": apple_sub})
+    else:
+        # backfill email/name if we didn't have them yet
+        updates = {}
+        if incoming_email and not user.get("email"):
+            updates["email"] = incoming_email
+        if (body.given_name or body.family_name) and (not user.get("username") or user["username"] == "Trader"):
+            updates["username"] = " ".join(filter(None, [body.given_name, body.family_name])).strip()
+        if updates:
+            users_coll.update_one({"_id": user["_id"]}, {"$set": updates})
+            user.update(updates)
+
+    token = create_access_token({"sub": str(user["_id"]), "email": user.get("email") or ""})
+    return {"access_token": token, "token_type": "bearer"}
