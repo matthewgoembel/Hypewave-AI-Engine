@@ -113,19 +113,13 @@ async def handler(event):
                 pass
 
     # ---- Merge posts by album_id (or insert single) ----
+    # ---- Merge posts by album_id (or insert single) ----
     coll = collection
     key = {"source": canonical_username}
     if album_id:
         key["album_id"] = album_id
     else:
         key["id"] = message.id
-
-    # ⬇️ backfill avatar across this channel if we managed to upload one
-    if avatar_url:
-        coll.update_many(
-            {"source": canonical_username, "avatar_url": {"$exists": False}},
-            {"$set": {"avatar_url": avatar_url}}
-        )
 
     update = {
         "$setOnInsert": {
@@ -134,28 +128,25 @@ async def handler(event):
             "date": message.date.replace(tzinfo=timezone.utc),
             "link": f"https://t.me/{canonical_username}/{message.id}",
             "source": canonical_username,
-            "display_name": display_name,
+            # NOTE: no display_name here to avoid $set vs $setOnInsert conflicts
         }
     }
 
-    # Keep the FIRST text we see; don’t overwrite later
+    # Keep the FIRST text only on insert
     if message.text:
         update["$setOnInsert"]["text"] = message.text
 
-    # ensure display_name stays fresh and attach avatar if we have one
+    # Keep display_name fresh every time; attach avatar when we have it
     update.setdefault("$set", {})["display_name"] = display_name
     if avatar_url:
-        update["$set"]["avatar_url"] = avatar_url    
+        update["$set"]["avatar_url"] = avatar_url
 
-    # Media handling:
+    # Media handling
     if media_item:
-        # Push creates the array if missing — no conflict with $setOnInsert
-        update["$push"] = {"media": media_item}
-        # Set the first media_url only on insert (compat)
+        update["$push"] = {"media": media_item}           # append media parts
         update["$setOnInsert"]["media_url"] = media_item["url"]
     else:
-        # No media in this part (e.g., first message is text) — initialize empty array on insert
-        update["$setOnInsert"]["media"] = []
+        update["$setOnInsert"]["media"] = []              # initialize on first insert
 
     res = coll.update_one(key, update, upsert=True)
     print(f"📥 Upserted {'album' if album_id else 'post'} {album_id or message.id}")
