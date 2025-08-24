@@ -98,17 +98,27 @@ def get_latest_news(limit=24):
     combined = t_docs + tr_docs
     combined.sort(key=lambda x: x.get("date") or datetime.min, reverse=True)
 
+    # ⬇️ precompute the latest known avatar per source
+    latest_avatar = {}
+    for d in combined:
+        s = d.get("source")
+        av = d.get("avatar_url")
+        if s and av and s not in latest_avatar:
+            latest_avatar[s] = av
+
     out = []
     for doc in combined[:limit]:
+        s = doc.get("source")
+        avatar = doc.get("avatar_url") or (latest_avatar.get(s) if s else None)
         out.append({
             "text": doc.get("text"),
             "link": doc.get("link"),
             "timestamp": doc.get("date").isoformat() if doc.get("date") else None,
-            "source": doc.get("source"),
+            "source": s,
             "display_name": doc.get("display_name"),
-            "media_url": doc.get("media_url"),     
-            "media": doc.get("media", []),         
-            "avatar_url": doc.get("avatar_url"),   
+            "media_url": doc.get("media_url"),
+            "media": doc.get("media", []),
+            "avatar_url": avatar,      # ⬅️ always try to fill this
             "album_id": doc.get("album_id"),
         })
     return out

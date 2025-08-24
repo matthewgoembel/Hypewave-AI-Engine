@@ -120,6 +120,13 @@ async def handler(event):
     else:
         key["id"] = message.id
 
+    # ⬇️ backfill avatar across this channel if we managed to upload one
+    if avatar_url:
+        coll.update_many(
+            {"source": canonical_username, "avatar_url": {"$exists": False}},
+            {"$set": {"avatar_url": avatar_url}}
+        )
+
     update = {
         "$setOnInsert": {
             "id": message.id,
@@ -128,7 +135,6 @@ async def handler(event):
             "link": f"https://t.me/{canonical_username}/{message.id}",
             "source": canonical_username,
             "display_name": display_name,
-            # DO NOT set "media" here by default; we’ll conditionally add it below
         }
     }
 
