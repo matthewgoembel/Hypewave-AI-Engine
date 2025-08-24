@@ -112,8 +112,7 @@ async def handler(event):
             except Exception:
                 pass
 
-    # ---- Merge posts by album_id (or insert single) ----
-    # ---- Merge posts by album_id (or insert single) ----
+    # key for merge-by-album or single
     coll = collection
     key = {"source": canonical_username}
     if album_id:
@@ -128,25 +127,25 @@ async def handler(event):
             "date": message.date.replace(tzinfo=timezone.utc),
             "link": f"https://t.me/{canonical_username}/{message.id}",
             "source": canonical_username,
-            # NOTE: no display_name here to avoid $set vs $setOnInsert conflicts
-        }
+            # ⛔️ DO NOT put display_name here
+            # optional: initialize arrays on first insert
+            "media": [],
+        },
+        "$set": {
+            "display_name": display_name,           # ✅ keep it only here
+            # add any fields you want to refresh every message:
+            # "text": message.text or None,
+        },
     }
 
-    # Keep the FIRST text only on insert
-    if message.text:
-        update["$setOnInsert"]["text"] = message.text
-
-    # Keep display_name fresh every time; attach avatar when we have it
-    update.setdefault("$set", {})["display_name"] = display_name
+    # attach avatar if you have it
     if avatar_url:
         update["$set"]["avatar_url"] = avatar_url
 
-    # Media handling
+    # media push (if you split albums into multiple media parts)
     if media_item:
-        update["$push"] = {"media": media_item}           # append media parts
+        update["$push"] = {"media": media_item}
         update["$setOnInsert"]["media_url"] = media_item["url"]
-    else:
-        update["$setOnInsert"]["media"] = []              # initialize on first insert
 
     res = coll.update_one(key, update, upsert=True)
     print(f"📥 Upserted {'album' if album_id else 'post'} {album_id or message.id}")
