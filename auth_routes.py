@@ -24,6 +24,8 @@ GOOGLE_ALLOWED_AUDS = {v for v in [
 
 APPLE_BUNDLE_ID = os.getenv("APPLE_BUNDLE_ID")  # e.g., com.hypewave.ai (native iOS)
 
+WAIVER_VERSION = os.getenv("WAIVER_VERSION", "2025-08-23")
+
 # --- Models ---
 class UserRegister(BaseModel):
     email: str
@@ -44,6 +46,10 @@ class AppleLoginBody(BaseModel):
     given_name: str | None = None
     family_name: str | None = None
 
+
+class WaiverAcceptBody(BaseModel):
+    version: str | None = None
+
 # --- Helpers ---
 def _mint_session_for_email(email: str, default_name: str = "User", avatar_url: str = "", login_method: str = "oauth"):
     """Find or create a user, then mint our JWT."""
@@ -57,6 +63,7 @@ def _mint_session_for_email(email: str, default_name: str = "User", avatar_url: 
         user = get_user_by_email(email)
     token = create_access_token({"sub": str(user["_id"]), "email": user["email"]})
     return {"access_token": token, "token_type": "bearer"}
+
 
 # --- Core auth utilities ---
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(oauth2_scheme)):
@@ -73,7 +80,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(oauth2_
         "email": user["email"],
         "username": user.get("username"),
         "avatar_url": user.get("avatar_url"),
-        "login_method": user.get("login_method")
+        "login_method": user.get("login_method"),
+        "waiver": user.get("waiver", {"signed": False})
     }
 
 # --- Email/password ---
@@ -157,6 +165,16 @@ def delete_account(user=Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found.")
     return {"message": "Account deleted successfully"}
+
+@router.post("/me/waiver")
+def accept_waiver(body: WaiverAcceptBody, user=Depends(get_current_user)):
+    version = (body.version or WAIVER_VERSION).strip()
+    now = int(time.time())
+    users_coll.update_one(
+        {"_id": ObjectId(user["user_id"])},
+        {"$set": {"waiver": {"signed": True, "version": version, "at": now}}}
+    )
+    return {"ok": True, "waiver": {"signed": True, "version": version, "at": now}}
 
 # --- Google Sign-in (ID token flow) ---
 @router.post("/login/google")
@@ -254,6 +272,7 @@ def apple_login(body: AppleLoginBody):
                 "avatar_url": "",
                 "login_method": "apple",
                 "created_at": int(time.time()),
+                "waiver": {"signed": False, "version": WAIVER_VERSION, "at": None},
             }
             users_coll.insert_one(user)
             # re-read to get _id

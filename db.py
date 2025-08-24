@@ -12,6 +12,10 @@ load_dotenv()
 uri = os.getenv("MONGO_DB_URI")
 client = MongoClient(uri, server_api=ServerApi('1'))
 
+# --- top of db.py (after load_dotenv) ---
+WAIVER_VERSION = os.getenv("WAIVER_VERSION", "2025-08-23")
+
+
 # Optional ping to confirm connection
 try:
     client.admin.command('ping')
@@ -133,6 +137,7 @@ def create_user_in_db(email: str, password_hash: str, extra: dict = {}):
         "login_method": extra.get("login_method", "email"),
         "username": extra.get("username", email.split("@")[0]),
         "avatar_url": extra.get("avatar_url", ""),
+        "waiver": {"signed": False, "version": WAIVER_VERSION, "at": None},
     }
     result = users_coll.insert_one(user)
     return str(result.inserted_id)
