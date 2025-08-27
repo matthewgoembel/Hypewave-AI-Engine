@@ -52,7 +52,16 @@ def log_signal(user_id: str, input_data: dict, output_data: dict, extra_meta: di
         "output.source": output_data.get("source")
     }
 
-    collection.update_one(unique_filter, {"$set": entry}, upsert=True)
+    # db.py -> log_signal
+    collection.update_one(
+        unique_filter,
+        {
+            "$set": {k: v for k, v in entry.items() if k != "created_at"},
+            "$setOnInsert": {"created_at": entry["created_at"]},
+        },
+        upsert=True,
+    )
+
 
 
 

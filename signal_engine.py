@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from openai import OpenAI
+from winrate_checker import update_winrate
 
 from db import log_signal, client as mongo_client
 from market_data_ws import get_latest_ohlc
@@ -91,17 +92,23 @@ def generate_alerts_for_symbol(symbol: str) -> List[str]:
             logger.info("[⚠️] Duplicate trade skipped for %s.", symbol)
             return []
 
-        log_signal("partner-ai", {"symbol": symbol}, {
-            "result": f"${symbol} | {result['trade']} | {result['timeframe']} | Entry: {result['entry']} | Conf: {result['confidence']}",
-            "source": "AI Multi-Timeframe Engine",
-            "timeframe": result["timeframe"],
-            "confidence": result["confidence"],
-            "entry": result["entry"],
-            "sl": result["sl"],
-            "tp": result["tp"],
-            "thesis": result["thesis"],
-            "trade": result["trade"]
-        }, extra_meta={"status": "OPEN"})
+        log_signal(
+            "partner-ai",
+            {"symbol": symbol},
+            {
+                "result": f"${symbol} | {result['trade']} | {result['timeframe']} | Entry: {result['entry']} | Conf: {result['confidence']}",
+                "source": "AI Multi-Timeframe Engine",
+                "timeframe": result["timeframe"],
+                "confidence": result["confidence"],
+                "entry": result["entry"],
+                "sl": result["sl"],
+                "tp": result["tp"],
+                "thesis": result["thesis"],
+                "trade": result["trade"],
+            },
+            extra_meta={"status": "open"},  # ✅ lowercase for consistency
+        )
+
 
         update_signal_control(symbol, "trade", result["thesis"], result["next_check"])
         alerts.add(result["thesis"])
